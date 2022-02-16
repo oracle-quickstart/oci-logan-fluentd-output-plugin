@@ -1,4 +1,4 @@
-# OCI Logging Analytics Output Plugin
+# OCI Logging Analytics Fluentd Output Plugin
 
 
 ## Overview
