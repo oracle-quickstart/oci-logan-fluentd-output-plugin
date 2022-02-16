@@ -94,7 +94,7 @@ See [CHANGELOG](CHANGELOG.md).
 
 ## License
 
-Copyright (c) 2021, 2022 Oracle and/or its affiliates.  All rights reserved.
+Copyright (c) 2021, 2022  Oracle and/or its affiliates.
 
 See [LICENSE](LICENSE.txt) for more details.
 
