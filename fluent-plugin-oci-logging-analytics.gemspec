@@ -20,9 +20,9 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
   spec.required_ruby_version = ">= 2.6.0"
   spec.metadata = {
-    "documentation_uri" => "https://docs.oracle.com/en/learn/oci_logging_analytics_fluentd/"
-    "source_code_uri' => 'https://github.com/oracle-quickstart/oci-logan-fluentd-output-plugin",
-    "changelog_uri'   => 'https://github.com/oracle-quickstart/oci-logan-fluentd-output-plugin/CHANGELOG.md"
+    "documentation_uri" => "https://docs.oracle.com/en/learn/oci_logging_analytics_fluentd/",
+    "source_code_uri" => "https://github.com/oracle-quickstart/oci-logan-fluentd-output-plugin",
+    "changelog_uri"   => "https://github.com/oracle-quickstart/oci-logan-fluentd-output-plugin/CHANGELOG.md"
   }
 
   spec.add_development_dependency "rake", "~> 12.0"
