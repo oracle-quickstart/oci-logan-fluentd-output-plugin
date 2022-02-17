@@ -1,6 +1,6 @@
 # Change Log
 
-## 2.0.1 - 2022-02-15
+## 2.0.2 - 2022-02-17
 ### Added
 - Added required ruby version in gemspec.
 - Added spec metadata (Documentation, Source code and Change log) details.
