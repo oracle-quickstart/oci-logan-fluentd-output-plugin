@@ -6,7 +6,7 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
 Gem::Specification.new do |spec|
   spec.name    = "fluent-plugin-oci-logging-analytics"
-  spec.version = "2.0.1"
+  spec.version = "2.0.2"
   spec.authors = ["Oracle","OCI Observability: Logging Analytics"]
   spec.email   = ["oci_la_plugins_grp@oracle.com"]
 
@@ -22,7 +22,7 @@ Gem::Specification.new do |spec|
   spec.metadata = {
     "documentation_uri" => "https://docs.oracle.com/en/learn/oci_logging_analytics_fluentd/",
     "source_code_uri" => "https://github.com/oracle-quickstart/oci-logan-fluentd-output-plugin",
-    "changelog_uri"   => "https://github.com/oracle-quickstart/oci-logan-fluentd-output-plugin/CHANGELOG.md"
+    "changelog_uri"   => "https://github.com/oracle-quickstart/oci-logan-fluentd-output-plugin/blob/main/CHANGELOG.md"
   }
 
   spec.add_development_dependency "rake", "~> 12.0"
