@@ -8,6 +8,8 @@ require 'zip'
 require 'logger'
 require_relative '../dto/logEventsJson'
 require_relative '../dto/logEvents'
+require_relative '../metrics/prometheusMetrics'
+require_relative '../metrics/metricsLabels'
 
 # Import only specific OCI modules to improve load times and reduce the memory requirements.
 require 'oci/auth/auth'
@@ -53,8 +55,25 @@ module Fluent::Plugin
     helpers :thread, :event_emitter
 
     MAX_FILES_PER_ZIP = 100
+    METRICS_INVALID_REASON_MESSAGE = "MISSING_FIELD_MESSAGE"
+    METRICS_INVALID_REASON_LOG_GROUP_ID = "MISSING_OCI_LA_LOG_GROUP_ID_FIELD"
+    METRICS_INVALID_REASON_LOG_SOURCE_NAME = "MISSING_OCI_LA_LOG_SOURCE_NAME_FIELD"
+
+    METRICS_SERVICE_ERROR_REASON_400 = "INVALID_PARAMETER"
+    METRICS_SERVICE_ERROR_REASON_401 = "AUTHENTICATION_FAILED"
+    METRICS_SERVICE_ERROR_REASON_404 = "AUTHORIZATION_FAILED"
+    METRICS_SERVICE_ERROR_REASON_429 = "TOO_MANY_REQUESTES"
+    METRICS_SERVICE_ERROR_REASON_500 = "INTERNAL_SERVER_ERROR"
+    METRICS_SERVICE_ERROR_REASON_502 = "BAD_GATEWAY"
+    METRICS_SERVICE_ERROR_REASON_503 = "SERVICE_UNAVAILABLE"
+    METRICS_SERVICE_ERROR_REASON_504 = "GATEWAY_TIMEOUT"
+    METRICS_SERVICE_ERROR_REASON_505 = "HTTP_VERSION_NOT_SUPPORTED"
+    METRICS_SERVICE_ERROR_REASON_UNKNOWN = "UNKNOWN_ERROR"
+
+
     @@logger = nil
     @@loganalytics_client = nil
+    @@prometheusMetrics = nil
     @@logger_config_errors = []
 
 
@@ -252,6 +271,7 @@ module Fluent::Plugin
 
     def configure(conf)
       super
+      @@prometheusMetrics = PrometheusMetrics.instance
       initialize_logger
 
       initialize_loganalytics_client
@@ -504,32 +524,36 @@ module Fluent::Plugin
 
     def is_valid_record(record_hash,record)
       begin
+         invalid_reason = nil
          if !record_hash.has_key?("message")
+            invalid_reason = OutOracleOCILogAnalytics::METRICS_INVALID_REASON_MESSAGE
             if record_hash.has_key?("tag")
               @@logger.warn {"Invalid records associated with tag : #{record["tag"]}. 'message' field is not present in the record."}
             else
               @@logger.info {"InvalidRecord: #{record}"}
               @@logger.warn {"Invalid record. 'message' field is not present in the record."}
             end
-            return false
+            return false,invalid_reason
          elsif !record_hash.has_key?("oci_la_log_group_id") || !is_valid(record["oci_la_log_group_id"])
+             invalid_reason = OutOracleOCILogAnalytics::METRICS_INVALID_REASON_LOG_GROUP_ID
              if record_hash.has_key?("tag")
                @@logger.warn {"Invalid records associated with tag : #{record["tag"]}.'oci_la_log_group_id' must not be empty.
                                Skipping all the records associated with the tag"}
              else
                @@logger.warn {"Invalid record.'oci_la_log_group_id' must not be empty"}
              end
-             return false
+             return false,invalid_reason
          elsif !record_hash.has_key?("oci_la_log_source_name") || !is_valid(record["oci_la_log_source_name"])
+            invalid_reason = OutOracleOCILogAnalytics::METRICS_INVALID_REASON_LOG_SOURCE_NAME
             if record_hash.has_key?("tag")
               @@logger.warn {"Invalid records associated with tag : #{record["tag"]}.'oci_la_log_source_name' must not be empty.
                               Skipping all the records associated with the tag"}
             else
               @@logger.warn {"Invalid record.'oci_la_log_source_name' must not be empty"}
             end
-            return false
+            return false,invalid_reason
          else
-            return true
+            return true,invalid_reason
          end
       end
     end
@@ -580,6 +604,11 @@ module Fluent::Plugin
          current_f, current_s = current.to_f, current.strftime("%Y%m%dT%H%M%S%9NZ")
          records = []
          count = 0
+         latency = 0
+         records_per_tag = 0
+
+         tag_metrics_set = Hash.new
+         logGroup_labels_set = Hash.new
 
          invalid_tag_set = Set.new
          incoming_records_per_tag = Hash.new
@@ -587,130 +616,166 @@ module Fluent::Plugin
          tags_per_logGroupId = Hash.new
          tag_logSet_map = Hash.new
          tag_metadata_map = Hash.new
+         incoming_records = 0
 
          chunk.each do |time, record|
-
+           incoming_records += 1
+           metricsLabels = MetricsLabels.new
            if !record.nil?
-               record_hash = record.keys.map {|x| [x,true]}.to_h
-               is_tag_exists = false
-               if record_hash.has_key?("tag") && is_valid(record["tag"])
-                 is_tag_exists = true
-               end
-
-               if is_tag_exists && incoming_records_per_tag.has_key?(record["tag"])
-                 incoming_records_per_tag[record["tag"]] += 1
-               elsif is_tag_exists
-                 incoming_records_per_tag[record["tag"]] = 1
-               end
-              #For any given tag, if one record fails (mandatory fields validation) then all the records from that source will be ignored
-              if is_tag_exists && invalid_tag_set.include?(record["tag"])
-                invalid_records_per_tag[record["tag"]] += 1
-                next #This tag is already present in the invalid_tag_set, so ignoring the message.
-              end
-              #Setting tag/default value for oci_la_log_path, when not provided in config file.
-              if !record_hash.has_key?("oci_la_log_path") || !is_valid(record["oci_la_log_path"])
-                   if is_tag_exists
-                      record["oci_la_log_path"] = record["tag"]
-                   else
-                      record["oci_la_log_path"] = 'UNDEFINED'
+              begin
+                   record_hash = record.keys.map {|x| [x,true]}.to_h
+                   is_tag_exists = false
+                   if record_hash.has_key?("tag") && is_valid(record["tag"])
+                     is_tag_exists = true
+                     metricsLabels.tag = record["tag"]
                    end
-              end
 
-              #Extracting oci_la_log_set when oci_la_log_set_key and oci_la_log_set_ext_regex is provided.
-              #1) oci_la_log_set param is not provided in config file and above logic not executed.
-              #2) Valid oci_la_log_set_key + No oci_la_log_set_ext_regex
-                #a) Valid key available in record with oci_la_log_set_key corresponding value  (oci_la_log_set_key is a key in config file) --> oci_la_log_set
-                #b) No Valid key available in record with oci_la_log_set_key corresponding value --> nil
-              #3) Valid key available in record with oci_la_log_set_key corresponding value + Valid oci_la_log_set_ext_regex
-                #a) Parse success --> parsed oci_la_log_set
-                #b) Parse failure --> nil (as oci_la_log_set value)
-              #4) No oci_la_log_set_key --> do nothing --> nil
+                   if is_tag_exists && incoming_records_per_tag.has_key?(record["tag"])
+                     incoming_records_per_tag[record["tag"]] += 1
+                   elsif is_tag_exists
+                     incoming_records_per_tag[record["tag"]] = 1
+                   end
+                  #For any given tag, if one record fails (mandatory fields validation) then all the records from that source will be ignored
+                  if is_tag_exists && invalid_tag_set.include?(record["tag"])
+                    invalid_records_per_tag[record["tag"]] += 1
+                    next #This tag is already present in the invalid_tag_set, so ignoring the message.
+                  end
+                  #Setting tag/default value for oci_la_log_path, when not provided in config file.
+                  if !record_hash.has_key?("oci_la_log_path") || !is_valid(record["oci_la_log_path"])
+                       if is_tag_exists
+                          record["oci_la_log_path"] = record["tag"]
+                       else
+                          record["oci_la_log_path"] = 'UNDEFINED'
+                       end
+                  end
 
-              #Extracting oci_la_log_set when oci_la_log_set and oci_la_log_set_ext_regex is provided.
-              #1) Valid oci_la_log_set + No oci_la_log_set_ext_regex --> oci_la_log_set
-              #2) Valid oci_la_log_set + Valid oci_la_log_set_ext_regex
-                #a) Parse success --> parsed oci_la_log_set
-                #b) Parse failure --> nil (as oci_la_log_set value)
-              #3) No oci_la_log_set --> do nothing --> nil
+                  #Extracting oci_la_log_set when oci_la_log_set_key and oci_la_log_set_ext_regex is provided.
+                  #1) oci_la_log_set param is not provided in config file and above logic not executed.
+                  #2) Valid oci_la_log_set_key + No oci_la_log_set_ext_regex
+                    #a) Valid key available in record with oci_la_log_set_key corresponding value  (oci_la_log_set_key is a key in config file) --> oci_la_log_set
+                    #b) No Valid key available in record with oci_la_log_set_key corresponding value --> nil
+                  #3) Valid key available in record with oci_la_log_set_key corresponding value + Valid oci_la_log_set_ext_regex
+                    #a) Parse success --> parsed oci_la_log_set
+                    #b) Parse failure --> nil (as oci_la_log_set value)
+                  #4) No oci_la_log_set_key --> do nothing --> nil
 
-              unparsed_logSet = nil
-              processed_logSet = nil
-              if is_tag_exists && tag_logSet_map.has_key?(record["tag"])
-                  record["oci_la_log_set"] = tag_logSet_map[record["tag"]]
-              else
-                if record_hash.has_key?("oci_la_log_set_key")
-                    if is_valid(record["oci_la_log_set_key"]) && record_hash.has_key?(record["oci_la_log_set_key"])
-                        if is_valid(record[record["oci_la_log_set_key"]])
-                            unparsed_logSet = record[record["oci_la_log_set_key"]]
+                  #Extracting oci_la_log_set when oci_la_log_set and oci_la_log_set_ext_regex is provided.
+                  #1) Valid oci_la_log_set + No oci_la_log_set_ext_regex --> oci_la_log_set
+                  #2) Valid oci_la_log_set + Valid oci_la_log_set_ext_regex
+                    #a) Parse success --> parsed oci_la_log_set
+                    #b) Parse failure --> nil (as oci_la_log_set value)
+                  #3) No oci_la_log_set --> do nothing --> nil
+
+                  unparsed_logSet = nil
+                  processed_logSet = nil
+                  if is_tag_exists && tag_logSet_map.has_key?(record["tag"])
+                      record["oci_la_log_set"] = tag_logSet_map[record["tag"]]
+                  else
+                    if record_hash.has_key?("oci_la_log_set_key")
+                        if is_valid(record["oci_la_log_set_key"]) && record_hash.has_key?(record["oci_la_log_set_key"])
+                            if is_valid(record[record["oci_la_log_set_key"]])
+                                unparsed_logSet = record[record["oci_la_log_set_key"]]
+                                processed_logSet = get_or_parse_logSet(unparsed_logSet,record, record_hash,is_tag_exists)
+                            end
+                        end
+                    end
+                    if !is_valid(processed_logSet) && record_hash.has_key?("oci_la_log_set")
+                        if is_valid(record["oci_la_log_set"])
+                            unparsed_logSet = record["oci_la_log_set"]
                             processed_logSet = get_or_parse_logSet(unparsed_logSet,record, record_hash,is_tag_exists)
                         end
                     end
-                end
-                if !is_valid(processed_logSet) && record_hash.has_key?("oci_la_log_set")
-                    if is_valid(record["oci_la_log_set"])
-                        unparsed_logSet = record["oci_la_log_set"]
-                        processed_logSet = get_or_parse_logSet(unparsed_logSet,record, record_hash,is_tag_exists)
-                    end
-                end
-                record["oci_la_log_set"] = processed_logSet
-                tag_logSet_map[record["tag"]] = processed_logSet
-              end
+                    record["oci_la_log_set"] = processed_logSet
+                    tag_logSet_map[record["tag"]] = processed_logSet
+                  end
+                  is_valid, metricsLabels.invalid_reason = is_valid_record(record_hash,record)
 
-              unless is_valid_record(record_hash,record)
-                if is_tag_exists
-                  invalid_tag_set.add(record["tag"])
-                  invalid_records_per_tag[record["tag"]] = 1
-                end
-                next
-              end
-              #This will check for null or empty messages and only that record will be ignored.
-              if !is_valid(record["message"])
-                  if is_tag_exists
-                    @@logger.warn {"'message' field has empty value, Skipping records associated with tag : #{record["tag"]}."}
-                    if invalid_records_per_tag.has_key?(record["tag"])
-                      invalid_records_per_tag[record["tag"]] += 1
-                    else
+                  unless is_valid
+                    if is_tag_exists
+                      invalid_tag_set.add(record["tag"])
                       invalid_records_per_tag[record["tag"]] = 1
                     end
+                    next
+                  end
+                  metricsLabels.logGroupId = record["oci_la_log_group_id"]
+                  metricsLabels.logSourceName = record["oci_la_log_source_name"]
+                  if record["oci_la_log_set"] != nil
+                      metricsLabels.logSet = record["oci_la_log_set"]
+                  end
+                  #This will check for null or empty messages and only that record will be ignored.
+                  if !is_valid(record["message"])
+                      metricsLabels.invalid_reason = OutOracleOCILogAnalytics::METRICS_INVALID_REASON_MESSAGE
+                      if is_tag_exists
+                        @@logger.warn {"'message' field has empty value, Skipping records associated with tag : #{record["tag"]}."}
+                        if invalid_records_per_tag.has_key?(record["tag"])
+                          invalid_records_per_tag[record["tag"]] += 1
+                        else
+                          invalid_records_per_tag[record["tag"]] = 1
+                        end
+                      else
+                        @@logger.warn {"'message' field has empty value, Skipping record."}
+                      end
+                      next
                   else
-                    @@logger.warn {"'message' field has empty value, Skipping record."}
+                    record["message"] = json_message_handler(record["message"])
                   end
-                  next
-              else
-                record["message"] = json_message_handler(record["message"])
-              end
 
-              if record_hash.has_key?("kubernetes")
-                record["oci_la_metadata"] = get_kubernetes_metadata(record["oci_la_metadata"],record)
-              end
-
-              if tag_metadata_map.has_key?(record["tag"])
-                record["oci_la_metadata"] = tag_metadata_map[record["tag"]]
-              else
-                if record_hash.has_key?("oci_la_metadata")
-                    record["oci_la_metadata"] = get_valid_metadata(record["oci_la_metadata"])
-                    tags_per_logGroupId[record["tag"]] = record["oci_la_metadata"]
-                else
-                    tags_per_logGroupId[record["tag"]] = nil
-                end
-              end
-
-              if is_tag_exists
-                if tags_per_logGroupId.has_key?(record["oci_la_log_group_id"])
-                  if !tags_per_logGroupId[record["oci_la_log_group_id"]].include?(record["tag"])
-                    tags_per_logGroupId[record["oci_la_log_group_id"]] += ", "+record["tag"]
+                  if record_hash.has_key?("kubernetes")
+                    record["oci_la_metadata"] = get_kubernetes_metadata(record["oci_la_metadata"],record)
                   end
-                else
-                  tags_per_logGroupId[record["oci_la_log_group_id"]] = record["tag"]
-                end
-              end
 
-             records << record
+                  if tag_metadata_map.has_key?(record["tag"])
+                    record["oci_la_metadata"] = tag_metadata_map[record["tag"]]
+                  else
+                    if record_hash.has_key?("oci_la_metadata")
+                        record["oci_la_metadata"] = get_valid_metadata(record["oci_la_metadata"])
+                        tags_per_logGroupId[record["tag"]] = record["oci_la_metadata"]
+                    else
+                        tags_per_logGroupId[record["tag"]] = nil
+                    end
+                  end
+
+                  if is_tag_exists
+                    if tags_per_logGroupId.has_key?(record["oci_la_log_group_id"])
+                      if !tags_per_logGroupId[record["oci_la_log_group_id"]].include?(record["tag"])
+                        tags_per_logGroupId[record["oci_la_log_group_id"]] += ", "+record["tag"]
+                      end
+                    else
+                      tags_per_logGroupId[record["oci_la_log_group_id"]] = record["tag"]
+                    end
+                  end
+
+                  records << record
+              ensure
+                 # To get chunk_time_to_receive metrics per tag, corresponding latency and total records are calculated
+                 if tag_metrics_set.has_key?(record["tag"])
+                      metricsLabels = tag_metrics_set[record["tag"]]
+                      latency = metricsLabels.latency
+                      records_per_tag = metricsLabels.records_per_tag
+                 else
+                      latency = 0
+                      records_per_tag = 0
+                 end
+                 latency += (current_f - time)
+                 records_per_tag += 1
+                 metricsLabels.latency = latency
+                 metricsLabels.records_per_tag = records_per_tag
+                 tag_metrics_set[record["tag"]]  = metricsLabels
+                 if record["oci_la_log_group_id"] != nil && !logGroup_labels_set.has_key?(record["oci_la_log_group_id"])
+                     logGroup_labels_set[record["oci_la_log_group_id"]]  = metricsLabels
+                 end
+              end
            else
             @@logger.trace {"Record is nil, ignoring the record"}
            end
          end
          @@logger.debug {"records.length:#{records.length}"}
+
+         tag_metrics_set.each do |tag,metricsLabels|
+             latency_avg = (metricsLabels.latency / metricsLabels.records_per_tag).round(3)
+             @@prometheusMetrics.chunk_time_to_receive.observe(latency_avg, labels: { tag: tag})
+         end
+
          lrpes_for_logGroupId = {}
          records.group_by{|record|
                       oci_la_log_group_id = record['oci_la_log_group_id']
@@ -721,29 +786,62 @@ module Fluent::Plugin
          rescue => ex
             @@logger.error {"Error occurred while grouping records by oci_la_log_group_id:#{ex.inspect}"}
       end
-      return incoming_records_per_tag,invalid_records_per_tag,tags_per_logGroupId,lrpes_for_logGroupId
+      return incoming_records_per_tag,invalid_records_per_tag,tag_metrics_set,logGroup_labels_set,tags_per_logGroupId,lrpes_for_logGroupId
     end
     # main entry point for FluentD's flush_threads, which get invoked
     # when a chunk is ready for flushing (see chunk limits and flush_intervals)
     def write(chunk)
       @@logger.info {"Received new chunk, started processing ..."}
-      metrics = Hash.new
-      metrics["count"] = 0
-      metrics["event"] = "zipping"
-      metrics["bytes_in"] = chunk.bytesize
-      metrics['records_dropped'] = 0
+      #@@prometheusMetrics.bytes_received.set(chunk.bytesize, labels: { tag: nil})
       begin
         # 1) Create an in-memory zipfile for the given FluentD chunk
         # 2) Synchronization has been removed. See EMCLAS-28675
 
         begin
           lrpes_for_logGroupId = {}
-          incoming_records_per_tag,invalid_records_per_tag,tags_per_logGroupId,lrpes_for_logGroupId = group_by_logGroupId(chunk)
+          incoming_records_per_tag,invalid_records_per_tag,tag_metrics_set,logGroup_labels_set,tags_per_logGroupId,lrpes_for_logGroupId = group_by_logGroupId(chunk)
           valid_message_per_tag = Hash.new
+          logGroup_metrics_map = Hash.new
+          metricsLabels_array = []
+
           incoming_records_per_tag.each do |key,value|
             dropped_messages = (invalid_records_per_tag.has_key?(key)) ? invalid_records_per_tag[key].to_i : 0
             valid_messages = value.to_i - dropped_messages
             valid_message_per_tag[key] = valid_messages
+
+            metricsLabels = tag_metrics_set[key]
+            if metricsLabels == nil
+                metricsLabels = MetricsLabels.new
+            end
+            metricsLabels.records_valid = valid_messages
+            # logGroup_metrics_map will have logGroupId as key and metricsLabels_array as value.
+            # In a chunk we can have different logGroupIds but we are creating payloads based on logGroupId and that can internally have different logSourceName and tag data.
+            # Using logGroup_metrics_map, for a given chunk, we can produce the metrics with proper logGroupId and its corresponding values.
+            if metricsLabels.logGroupId != nil
+               if logGroup_metrics_map.has_key?(metricsLabels.logGroupId)
+                  metricsLabels_array = logGroup_metrics_map[metricsLabels.logGroupId]
+               else
+                  metricsLabels_array = []
+               end
+               metricsLabels_array.push(metricsLabels)
+               logGroup_metrics_map[metricsLabels.logGroupId] = metricsLabels_array
+            end
+
+            @@prometheusMetrics.records_received.set(value.to_i, labels: { tag: key,
+                                                                           oci_la_log_group_id: metricsLabels.logGroupId,
+                                                                           oci_la_log_source_name: metricsLabels.logSourceName,
+                                                                           oci_la_log_set: metricsLabels.logSet})
+
+            @@prometheusMetrics.records_invalid.set(dropped_messages, labels: { tag: key,
+                                                                                 oci_la_log_group_id: metricsLabels.logGroupId,
+                                                                                 oci_la_log_source_name: metricsLabels.logSourceName,
+                                                                                 oci_la_log_set: metricsLabels.logSet,
+                                                                                 reason: metricsLabels.invalid_reason})
+            @@prometheusMetrics.records_valid.set(valid_messages, labels: { tag: key,
+                                                                                 oci_la_log_group_id: metricsLabels.logGroupId,
+                                                                                 oci_la_log_source_name: metricsLabels.logSourceName,
+                                                                                 oci_la_log_set: metricsLabels.logSet})
+
             if dropped_messages > 0
               @@logger.info {"Messages: #{value.to_i} \t Valid: #{valid_messages} \t Invalid: #{dropped_messages} \t tag:#{key}"}
             end
@@ -758,17 +856,27 @@ module Fluent::Plugin
                 zippedstream = nil
                 oci_la_log_set = nil
                 logSets_per_logGroupId_map = Hash.new
+
+                metricsLabels_array = logGroup_metrics_map[oci_la_log_group_id]
+
                 # Only MAX_FILES_PER_ZIP (100) files are allowed, which will be grouped and zipped.
                 # Due to MAX_FILES_PER_ZIP constraint, for a oci_la_log_group_id, we can get more than one zip file and those many api calls will be made.
                 logSets_per_logGroupId_map, oci_la_global_metadata = get_logSets_map_per_logGroupId(oci_la_log_group_id,records_per_logGroupId)
                  if logSets_per_logGroupId_map != nil
-                    logSets_per_logGroupId_map.each do |file_count,records_per_logSet_map|
-                        zippedstream,number_of_records = get_zipped_stream(oci_la_log_group_id,oci_la_global_metadata,records_per_logSet_map)
-                        if zippedstream != nil
-                          zippedstream.rewind #reposition buffer pointer to the beginning
-                          upload_to_oci(oci_la_log_group_id, number_of_records, zippedstream)
-                        end
-                    end
+                    bytes_out = 0
+                    records_out = 0
+                    chunk_upload_time_taken = nil
+                    chunk_upload_time_taken = Benchmark.measure {
+                      logSets_per_logGroupId_map.each do |file_count,records_per_logSet_map|
+                          zippedstream,number_of_records = get_zipped_stream(oci_la_log_group_id,oci_la_global_metadata,records_per_logSet_map)
+                          if zippedstream != nil
+                            zippedstream.rewind #reposition buffer pointer to the beginning
+                            upload_to_oci(oci_la_log_group_id, number_of_records, zippedstream, metricsLabels_array)
+                          end
+                      end
+                      }.real.round(3)
+                      @@prometheusMetrics.chunk_time_to_upload.observe(chunk_upload_time_taken, labels: { oci_la_log_group_id: oci_la_log_group_id})
+
                  end
               ensure
                 zippedstream&.close
@@ -882,8 +990,10 @@ module Fluent::Plugin
     end
 
     # upload zipped stream to oci
-    def upload_to_oci(oci_la_log_group_id, number_of_records, zippedstream)
+    def upload_to_oci(oci_la_log_group_id, number_of_records, zippedstream, metricsLabels_array)
       begin
+        error_reason = nil
+        error_code = nil
         opts = {payload_type: "ZIP"}
 
             response = @@loganalytics_client.upload_log_events_file(namespace_name=@namespace,
@@ -892,6 +1002,19 @@ module Fluent::Plugin
                                             opts)
         if !response.nil?  && response.status == 200 then
           headers = response.headers
+
+          metricsLabels_array.each { |metricsLabels|
+            @@prometheusMetrics.records_posted.set(metricsLabels.records_valid, labels: { tag: metricsLabels.tag,
+                                                                                 oci_la_log_group_id: metricsLabels.logGroupId,
+                                                                                 oci_la_log_source_name: metricsLabels.logSourceName,
+                                                                                 oci_la_log_set: metricsLabels.logSet})
+          }
+
+          #zippedstream.rewind #reposition buffer pointer to the beginning
+          #zipfile = zippedstream&.sysread&.dup
+          #bytes_out = zipfile&.length
+          #@@prometheusMetrics.bytes_posted.set(bytes_out, labels: { oci_la_log_group_id: oci_la_log_group_id})
+
           @@logger.info {"The payload has been successfully uploaded to logAnalytics -
                          oci_la_log_group_id: #{oci_la_log_group_id},
                          ConsumedRecords: #{number_of_records},
@@ -901,13 +1024,16 @@ module Fluent::Plugin
                          opc-object-id: #{headers['opc-object-id']}"}
         end
         rescue OCI::Errors::ServiceError => serviceError
+          error_code = serviceError.status_code
           case serviceError.status_code
                when 400
+                 error_reason = OutOracleOCILogAnalytics::METRICS_SERVICE_ERROR_REASON_400
                  @@logger.error {"oci upload exception : Error while uploading the payload. Invalid/Incorrect/missing Parameter - opc-request-id:#{serviceError.request_id}"}
                  if plugin_retry_on_4xx
                     raise serviceError
                  end
                when 401
+                 error_reason = OutOracleOCILogAnalytics::METRICS_SERVICE_ERROR_REASON_401
                  @@logger.error {"oci upload exception : Error while uploading the payload. Not Authenticated.
                                   opc-request-id:#{serviceError.request_id}
                                   message: #{serviceError.message}"}
@@ -915,6 +1041,7 @@ module Fluent::Plugin
                     raise serviceError
                  end
                when 404
+                 error_reason = OutOracleOCILogAnalytics::METRICS_SERVICE_ERROR_REASON_404
                  @@logger.error {"oci upload exception : Error while uploading the payload. Authorization failed for given oci_la_log_group_id against given Tenancy Namespace.
                                   oci_la_log_group_id: #{oci_la_log_group_id}
                                   Namespace: #{@namespace}
@@ -924,33 +1051,52 @@ module Fluent::Plugin
                     raise serviceError
                  end
                when 429
+                 error_reason = OutOracleOCILogAnalytics::METRICS_SERVICE_ERROR_REASON_429
                  @@logger.error {"oci upload exception : Error while uploading the payload. Too Many Requests - opc-request-id:#{serviceError.request_id}"}
                  raise serviceError
                when 500
+                 error_reason = OutOracleOCILogAnalytics::METRICS_SERVICE_ERROR_REASON_500
                  @@logger.error {"oci upload exception : Error while uploading the payload. Internal Server Error - opc-request-id:#{serviceError.request_id}"}
                  raise serviceError
 
                when 502
+                  error_reason = OutOracleOCILogAnalytics::METRICS_SERVICE_ERROR_REASON_502
                   @@logger.error {"oci upload exception : Error while uploading the payload. Bad Gateway - opc-request-id:#{serviceError.request_id}"}
                   raise serviceError
 
                when 503
+                  error_reason = OutOracleOCILogAnalytics::METRICS_SERVICE_ERROR_REASON_503
                   @@logger.error {"oci upload exception : Error while uploading the payload. Service unavailable - opc-request-id:#{serviceError.request_id}"}
                   raise serviceError
 
                when 504
+                   error_reason = OutOracleOCILogAnalytics::METRICS_SERVICE_ERROR_REASON_504
                    @@logger.error {"oci upload exception : Error while uploading the payload. Gateway Timeout - opc-request-id:#{serviceError.request_id}"}
                    raise serviceError
 
                when 505
+                   error_reason = OutOracleOCILogAnalytics::METRICS_SERVICE_ERROR_REASON_505
                    @@logger.error {"oci upload exception : Error while uploading the payload. HTTP Version Not Supported - opc-request-id:#{serviceError.request_id}"}
                    raise serviceError
                else
+                 error_reason = OutOracleOCILogAnalytics::METRICS_SERVICE_ERROR_REASON_UNKNOWN
                  @@logger.error {"oci upload exception : Error while uploading the payload #{serviceError.message}"}
                  raise serviceError
              end
           rescue => ex
+             error_reason = ex
              @@logger.error {"oci upload exception : Error while uploading the payload. #{ex}"}
+          ensure
+              if error_reason != nil
+                  metricsLabels_array.each { |metricsLabels|
+                    @@prometheusMetrics.records_error.set(metricsLabels.records_valid, labels: { tag: metricsLabels.tag,
+                                                                                         oci_la_log_group_id: metricsLabels.logGroupId,
+                                                                                         oci_la_log_source_name: metricsLabels.logSourceName,
+                                                                                         oci_la_log_set: metricsLabels.logSet,
+                                                                                         error_code: error_code,
+                                                                                         reason: error_reason})
+                  }
+              end
       end
     end
   end

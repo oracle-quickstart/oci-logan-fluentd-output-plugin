@@ -20,13 +20,15 @@ Refer [Prerequisites](https://docs.oracle.com/en/learn/oci_logging_analytics_flu
     <th>ruby</th>
     <th>rubyzip</th>
     <th>oci</th>
+    <th>prometheus-client</th>
   </tr>
   <tr>
     <td>>= 2.0.0</td>
     <td>>= 0.14.10, < 2 </td>
     <td>>= 2.6</td>
     <td>~> 2.3.2 </td>
-    <td>~> 2.13</td>
+    <td>~> 2.16</td>
+    <td>~> 2.1.0</td>
   </tr>
 </table>
 
@@ -81,11 +83,48 @@ Use filter plugin (record_transformer) to transform the input log events to add 
 
    - Example configuration that can be used for monitoring [kafka log](examples/kafka.conf)
 
-
-
 ## Start Viewing the Logs in Logging Analytics
 
 Refer [Viewing the Logs in Logging Analytics](https://docs.oracle.com/en/learn/oci_logging_analytics_fluentd/#start-viewing-the-logs-in-logging-analytics)
+
+## Metrics
+
+The plugin emits following metrics in Prometheus format, which provides stats/insights about the data being collected and processed by the plugin. Refer [monitoring-prometheus](https://docs.fluentd.org/monitoring-fluentd/monitoring-prometheus) for details on how to expose these and other various Fluentd metrics to Prometheus (*If the requirement is to collect and monitor core Fluentd and this plugin metrics alone using Prometheus then Step1 and Step2 from the referred document can be skipped*).
+
+    Metric Name: oci_la_fluentd_output_plugin_records_received 
+    labels: [:tag,:oci_la_log_group_id,:oci_la_log_source_name,:oci_la_log_set]
+    Description: Number of records received by the OCI Logging Analytics Fluentd output plugin.
+    Type : Gauge
+
+    Metric Name: oci_la_fluentd_output_plugin_records_valid 
+    labels: [:tag,:oci_la_log_group_id,:oci_la_log_source_name,:oci_la_log_set]
+    Description: Number of valid records received by the OCI Logging Analytics Fluentd output plugin.
+    Type : Gauge 
+    
+    Metric Name: oci_la_fluentd_output_plugin_records_invalid 
+    labels: [:tag,:oci_la_log_group_id,:oci_la_log_source_name,:oci_la_log_set,:reason]
+    Description: Number of invalid records received by the OCI Logging Analytics Fluentd output plugin. 
+    Type : Gauge
+    
+    Metric Name: oci_la_fluentd_output_plugin_records_post_error 
+    labels: [:tag,:oci_la_log_group_id,:oci_la_log_source_name,:oci_la_log_set,:error_code, :reason]
+    Description: Number of records failed posting to OCI Logging Analytics by the Fluentd output plugin.
+    Type : Gauge
+        
+    Metric Name: oci_la_fluentd_output_plugin_records_post_success 
+    labels: [:tag,:oci_la_log_group_id,:oci_la_log_source_name,:oci_la_log_set]
+    Description: Number of records posted by the OCI Logging Analytics Fluentd output plugin. 
+    Type : Gauge  
+  
+    Metric Name: oci_la_fluentd_output_plugin_chunk_time_to_receive
+    labels: [:tag]
+    Description: Average time taken by Fluentd to deliver the collected records from Input plugin to OCI Logging Analytics output plugin.
+    Type : Histogram  
+    
+    Metric Name: oci_la_fluentd_output_plugin_chunk_time_to_post 
+    labels: [:oci_la_log_group_id]
+    Description: Average time taken for posting the received records to OCI Logging Analytics by the Fluentd output plugin.
+    Type : Histogram
 
 
 ## Changes
