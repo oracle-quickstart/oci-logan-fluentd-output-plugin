@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.0.4 - 2022-06-20
+### Changed
+- Updated prometheus-client dependency to v4.0.0.
+
 ## 2.0.3 - 2022-04-20
 ### Added
 - Added Prometheus-client Api based internal metrics functionality.
