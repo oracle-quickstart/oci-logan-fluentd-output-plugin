@@ -1,6 +1,7 @@
 class MetricsLabels
-  attr_accessor :tag, :logGroupId, :logSourceName, :logSet, :invalid_reason, :records_valid, :records_per_tag, :latency
+  attr_accessor :worker_id, :tag, :logGroupId, :logSourceName, :logSet, :invalid_reason, :records_valid, :records_per_tag, :latency
   def initialize
+      @worker_id = nil
       @tag = nil
       @logGroupId = nil
       @logSourceName = nil
