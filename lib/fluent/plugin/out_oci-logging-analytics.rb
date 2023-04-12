@@ -4,6 +4,8 @@
 require 'fluent/plugin/output'
 require "benchmark"
 require 'zip'
+require 'yajl'
+require 'yajl/json_gem'
 
 require 'logger'
 require_relative '../dto/logEventsJson'
@@ -75,6 +77,8 @@ module Fluent::Plugin
     @@loganalytics_client = nil
     @@prometheusMetrics = nil
     @@logger_config_errors = []
+    @@worker_id = '0'
+    @@encoded_messages_count = 0
 
 
     desc 'OCI Tenancy Namespace.'
@@ -92,7 +96,7 @@ module Fluent::Plugin
     desc 'Payload zip File Location.'
     config_param :zip_file_location,                    :string, :default => nil
     desc 'The kubernetes_metadata_keys_mapping.'
-    config_param :kubernetes_metadata_keys_mapping,                    :hash, :default => {"container_name":"Kubernetes Container Name","namespace_name":"Kubernetes Namespace Name","pod_name":"Kubernetes Pod Name","container_image":"Kubernetes Container Image","host":"Kubernetes Node Name","master_url":"Kubernetes Master Url"}
+    config_param :kubernetes_metadata_keys_mapping,                    :hash, :default => {"container_name":"Container","namespace_name":"Namespace","pod_name":"Pod","container_image":"Container Image Name","host":"Node"}
 
 
     #****************************************************************
@@ -146,7 +150,7 @@ module Fluent::Plugin
       desc 'The number of threads of output plugins, which is used to write chunks in parallel.'
       config_set_default :flush_thread_count,  1
       desc 'The max size of each chunks: events will be written into chunks until the size of chunks become this size.'
-      config_set_default :chunk_limit_size,    2 * 1024 * 1024  # 2MB
+      config_set_default :chunk_limit_size,    4 * 1024 * 1024  # 4MB
       desc 'The size limitation of this buffer plugin instance.'
       config_set_default :total_limit_size,    5 * (1024**3) # 5GB
       desc 'Flush interval'
@@ -170,67 +174,72 @@ module Fluent::Plugin
     end
 
     def initialize_logger()
-      filename = nil
-      is_default_log_location = false
-      if is_valid(@plugin_log_location)
-        filename = @plugin_log_location[-1] == '/' ? @plugin_log_location : @plugin_log_location +'/'
-      else
-        is_default_log_location = true
-      end
-      if !is_valid_log_level(@plugin_log_level)
-        @plugin_log_level = @@default_log_level
-      end
-      oci_fluent_output_plugin_log = nil
-      if is_default_log_location
-        oci_fluent_output_plugin_log = 'oci-logging-analytics.log'
-      else
-        oci_fluent_output_plugin_log = filename+'oci-logging-analytics.log'
-      end
+      begin
+          filename = nil
+          is_default_log_location = false
+          if is_valid(@plugin_log_location)
+            filename = @plugin_log_location[-1] == '/' ? @plugin_log_location : @plugin_log_location +'/'
+          else
+            @@logger = log
+            return
+          end
+          if !is_valid_log_level(@plugin_log_level)
+            @plugin_log_level = @@default_log_level
+          end
+          oci_fluent_output_plugin_log = nil
+          if is_default_log_location
+            oci_fluent_output_plugin_log = 'oci-logging-analytics.log'
+          else
+            oci_fluent_output_plugin_log = filename+'oci-logging-analytics.log'
+          end
+          logger_config = nil
 
-      logger_config = nil
+          if is_valid_number_of_logs(@plugin_log_file_count) && is_valid_log_size(@plugin_log_file_size)
+            # When customer provided valid log_file_count and log_file_size.
+            # logger will rotate with max log_file_count with each file having max log_file_size.
+            # Older logs purged automatically.
+            @@logger = Logger.new(oci_fluent_output_plugin_log, @plugin_log_file_count, @@validated_log_size)
+            logger_config = 'USER_CONFIG'
+          elsif is_valid_log_rotation(@plugin_log_rotation)
+            # When customer provided only log_rotation.
+            # logger will create a new log based on log_rotation (new file everyday if the rotation is daily).
+            # This will create too many logs over a period of time as log purging is not done.
+            @@logger = Logger.new(oci_fluent_output_plugin_log, @plugin_log_rotation)
+            logger_config = 'FALLBACK_CONFIG'
+          else
+            # When customer provided invalid log config, default config is considered.
+            # logger will rotate with max default log_file_count with each file having max default log_file_size.
+            # Older logs purged automatically.
+            @@logger = Logger.new(oci_fluent_output_plugin_log, @@default_number_of_logs, @@default_log_size)
+            logger_config = 'DEFAULT_CONFIG'
+          end
 
-      if is_valid_number_of_logs(@plugin_log_file_count) && is_valid_log_size(@plugin_log_file_size)
-        # When customer provided valid log_file_count and log_file_size.
-        # logger will rotate with max log_file_count with each file having max log_file_size.
-        # Older logs purged automatically.
-        @@logger = Logger.new(oci_fluent_output_plugin_log, @plugin_log_file_count, @@validated_log_size)
-        logger_config = 'USER_CONFIG'
-      elsif is_valid_log_rotation(@plugin_log_rotation)
-        # When customer provided only log_rotation.
-        # logger will create a new log based on log_rotation (new file everyday if the rotation is daily).
-        # This will create too many logs over a period of time as log purging is not done.
-        @@logger = Logger.new(oci_fluent_output_plugin_log, @plugin_log_rotation)
-        logger_config = 'FALLBACK_CONFIG'
-      else
-        # When customer provided invalid log config, default config is considered.
-        # logger will rotate with max default log_file_count with each file having max default log_file_size.
-        # Older logs purged automatically.
-        @@logger = Logger.new(oci_fluent_output_plugin_log, @@default_number_of_logs, @@default_log_size)
-        logger_config = 'DEFAULT_CONFIG'
-      end
+          logger_set_level(@plugin_log_level)
+          @@logger.info {"Initializing oci-logging-analytics plugin"}
+          if is_default_log_location
+            @@logger.info {"plugin_log_location is not specified. oci-logging-analytics.log will be generated under directory from where fluentd is executed."}
+          end
 
-      logger_set_level(@plugin_log_level)
-
-      @@logger.info {"Initializing oci-logging-analytics plugin"}
-      if is_default_log_location
-        @@logger.info {"plugin_log_location is not specified. oci-logging-analytics.log will be generated under directory from where fluentd is executed."}
-      end
-
-      case logger_config
-        when 'USER_CONFIG'
-          @@logger.info {"Logger for oci-logging-analytics.log is initialized with config values log size: #{@plugin_log_file_size}, number of logs: #{@plugin_log_file_count}"}
-        when 'FALLBACK_CONFIG'
-          @@logger.info {"Logger for oci-logging-analytics.log is initialized with log rotation: #{@plugin_log_rotation}"}
-        when 'DEFAULT_CONFIG'
-          @@logger.info {"Logger for oci-logging-analytics.log is initialized with default config values log size: #{@@default_log_size}, number of logs: #{@@default_number_of_logs}"}
-      end
-      if @@logger_config_errors.length > 0
-        @@logger_config_errors. each {|logger_config_error|
-          @@logger.warn {"#{logger_config_error}"}
-        }
-      end
-      if is_valid_log_age(@plugin_log_age)
-        @@logger.warn {"'plugin_log_age' field is deprecated. Use 'plugin_log_file_size' and 'plugin_log_file_count' instead."}
+          case logger_config
+            when 'USER_CONFIG'
+              @@logger.info {"Logger for oci-logging-analytics.log is initialized with config values log size: #{@plugin_log_file_size}, number of logs: #{@plugin_log_file_count}"}
+            when 'FALLBACK_CONFIG'
+              @@logger.info {"Logger for oci-logging-analytics.log is initialized with log rotation: #{@plugin_log_rotation}"}
+            when 'DEFAULT_CONFIG'
+              @@logger.info {"Logger for oci-logging-analytics.log is initialized with default config values log size: #{@@default_log_size}, number of logs: #{@@default_number_of_logs}"}
+          end
+          if @@logger_config_errors.length > 0
+            @@logger_config_errors. each {|logger_config_error|
+              @@logger.warn {"#{logger_config_error}"}
+            }
+          end
+          if is_valid_log_age(@plugin_log_age)
+            @@logger.warn {"'plugin_log_age' field is deprecated. Use 'plugin_log_file_size' and 'plugin_log_file_count' instead."}
+          end
+      rescue => ex
+        @@logger = log
+        @@logger.error {"Error while initializing logger:#{ex.inspect}"}
+        @@logger.info {"Redirecting oci logging analytics logs to STDOUT"}
       end
     end
 
@@ -275,8 +284,8 @@ module Fluent::Plugin
       initialize_logger
 
       initialize_loganalytics_client
-      @@logger.error {"Error in config file : Buffer plugin must be of @type file."} unless buffer_config['@type'] == 'file'
-      raise Fluent::ConfigError, "Error in config file : Buffer plugin must be of @type file." unless buffer_config['@type'] == 'file'
+      #@@logger.error {"Error in config file : Buffer plugin must be of @type file."} unless buffer_config['@type'] == 'file'
+      #raise Fluent::ConfigError, "Error in config file : Buffer plugin must be of @type file." unless buffer_config['@type'] == 'file'
 
       is_mandatory_fields_valid,invalid_field_name =  mandatory_field_validator
       if !is_mandatory_fields_valid
@@ -288,8 +297,8 @@ module Fluent::Plugin
       unless conf.elements(name: 'buffer').empty?
         buffer_conf = conf.elements(name: 'buffer').first
         chunk_limit_size_from_conf = buffer_conf['chunk_limit_size']
-        unless chunk_limit_size_from_conf.nil?
-          log.debug "chunk limit size as per the configuration file is #{chunk_limit_size_from_conf}"
+        unless chunk_limit_size_from_conf.nil? && buffer_config['@type'] != 'file'
+          @@logger.debug "chunk limit size as per the configuration file is #{chunk_limit_size_from_conf}"
           case chunk_limit_size_from_conf.to_s
           when /([0-9]+)k/i
             chunk_limit_size_bytes = $~[1].to_i * 1024
@@ -299,13 +308,13 @@ module Fluent::Plugin
             chunk_limit_size_bytes = $~[1].to_i * (1024 ** 3)
           when /([0-9]+)t/i
             chunk_limit_size_bytes = $~[1].to_i * (1024 ** 4)
-          else
-            raise Fluent::ConfigError, "error parsing chunk_limit_size"
+          #else
+            #raise Fluent::ConfigError, "error parsing chunk_limit_size"
           end
 
-          log.debug "chunk limit size in bytes as per the configuration file is #{chunk_limit_size_bytes}"
-          if !chunk_limit_size_bytes.between?(1048576, 2097152)
-            raise Fluent::ConfigError, "chunk_limit_size must be between 1MB and 2MB"
+          @@logger.debug "chunk limit size in bytes as per the configuration file is #{chunk_limit_size_bytes}"
+          if chunk_limit_size_bytes != nil && !chunk_limit_size_bytes.between?(1048576, 4194304)
+            raise Fluent::ConfigError, "chunk_limit_size must be between 1MB and 4MB"
           end
         end
       end
@@ -577,7 +586,7 @@ module Fluent::Plugin
       kubernetes_metadata.each do |key, value|
         if kubernetes_metadata_keys_mapping.has_key?(key)
            if !is_valid(oci_la_metadata[kubernetes_metadata_keys_mapping[key]])
-              oci_la_metadata[kubernetes_metadata_keys_mapping[key]] = json_message_handler(value)
+              oci_la_metadata[kubernetes_metadata_keys_mapping[key]] = json_message_handler(key, value)
            end
         end
       end
@@ -588,14 +597,21 @@ module Fluent::Plugin
         return oci_la_metadata
     end
 
-    def json_message_handler(message)
-      if message.is_a?(Hash)
-        return JSON.generate(message)
-      else
-        return message
-      end
-      rescue => ex
-        return message
+    def json_message_handler(key, message)
+        begin
+            if !is_valid(message)
+                return nil
+            end
+            if message.is_a?(Hash)
+                return Yajl.dump(message) #JSON.generate(message)
+            end
+            return message
+        rescue => ex
+            @@logger.error {"Error occured while generating json for
+                                field: #{key}
+                                exception : #{ex}"}
+            return nil
+        end
     end
 
     def group_by_logGroupId(chunk)
@@ -624,6 +640,10 @@ module Fluent::Plugin
            if !record.nil?
               begin
                    record_hash = record.keys.map {|x| [x,true]}.to_h
+                   if record_hash.has_key?("worker_id") && is_valid(record["worker_id"])
+                        metricsLabels.worker_id = record["worker_id"]||= '0'
+                        @@worker_id = record["worker_id"]||= '0'
+                   end
                    is_tag_exists = false
                    if record_hash.has_key?("tag") && is_valid(record["tag"])
                      is_tag_exists = true
@@ -702,22 +722,23 @@ module Fluent::Plugin
                   if record["oci_la_log_set"] != nil
                       metricsLabels.logSet = record["oci_la_log_set"]
                   end
+                  record["message"] = json_message_handler("message", record["message"])
+
+
                   #This will check for null or empty messages and only that record will be ignored.
                   if !is_valid(record["message"])
                       metricsLabels.invalid_reason = OutOracleOCILogAnalytics::METRICS_INVALID_REASON_MESSAGE
                       if is_tag_exists
-                        @@logger.warn {"'message' field has empty value, Skipping records associated with tag : #{record["tag"]}."}
                         if invalid_records_per_tag.has_key?(record["tag"])
                           invalid_records_per_tag[record["tag"]] += 1
                         else
                           invalid_records_per_tag[record["tag"]] = 1
+                          @@logger.warn {"'message' field is empty or encoded, Skipping records associated with tag : #{record["tag"]}."}
                         end
                       else
-                        @@logger.warn {"'message' field has empty value, Skipping record."}
+                        @@logger.warn {"'message' field is empty or encoded, Skipping record."}
                       end
                       next
-                  else
-                    record["message"] = json_message_handler(record["message"])
                   end
 
                   if record_hash.has_key?("kubernetes")
@@ -773,7 +794,7 @@ module Fluent::Plugin
 
          tag_metrics_set.each do |tag,metricsLabels|
              latency_avg = (metricsLabels.latency / metricsLabels.records_per_tag).round(3)
-             @@prometheusMetrics.chunk_time_to_receive.observe(latency_avg, labels: { tag: tag})
+             @@prometheusMetrics.chunk_time_to_receive.observe(latency_avg, labels: { worker_id: metricsLabels.worker_id, tag: tag})
          end
 
          lrpes_for_logGroupId = {}
@@ -827,17 +848,20 @@ module Fluent::Plugin
                logGroup_metrics_map[metricsLabels.logGroupId] = metricsLabels_array
             end
 
-            @@prometheusMetrics.records_received.set(value.to_i, labels: { tag: key,
+            @@prometheusMetrics.records_received.set(value.to_i, labels: { worker_id: metricsLabels.worker_id,
+                                                                           tag: key,
                                                                            oci_la_log_group_id: metricsLabels.logGroupId,
                                                                            oci_la_log_source_name: metricsLabels.logSourceName,
                                                                            oci_la_log_set: metricsLabels.logSet})
 
-            @@prometheusMetrics.records_invalid.set(dropped_messages, labels: { tag: key,
+            @@prometheusMetrics.records_invalid.set(dropped_messages, labels: { worker_id: metricsLabels.worker_id,
+                                                                                 tag: key,
                                                                                  oci_la_log_group_id: metricsLabels.logGroupId,
                                                                                  oci_la_log_source_name: metricsLabels.logSourceName,
                                                                                  oci_la_log_set: metricsLabels.logSet,
                                                                                  reason: metricsLabels.invalid_reason})
-            @@prometheusMetrics.records_valid.set(valid_messages, labels: { tag: key,
+            @@prometheusMetrics.records_valid.set(valid_messages, labels: { worker_id: metricsLabels.worker_id,
+                                                                                tag: key,
                                                                                  oci_la_log_group_id: metricsLabels.logGroupId,
                                                                                  oci_la_log_source_name: metricsLabels.logSourceName,
                                                                                  oci_la_log_set: metricsLabels.logSet})
@@ -875,7 +899,7 @@ module Fluent::Plugin
                           end
                       end
                       }.real.round(3)
-                      @@prometheusMetrics.chunk_time_to_upload.observe(chunk_upload_time_taken, labels: { oci_la_log_group_id: oci_la_log_group_id})
+                      @@prometheusMetrics.chunk_time_to_upload.observe(chunk_upload_time_taken, labels: { worker_id: @@worker_id, oci_la_log_group_id: oci_la_log_group_id})
 
                  end
               ensure
@@ -956,7 +980,7 @@ module Fluent::Plugin
                 @@logger.debug {"Added entry #{nextEntry} for oci_la_log_set #{oci_la_log_set} into the zip."}
                 zos.put_next_entry(nextEntry)
                 logEventsJsonFinal = LogEventsJson.new(oci_la_global_metadata,lrpes_for_logEvents)
-                zos.write logEventsJsonFinal.to_hash.to_json
+                zos.write Yajl.dump(logEventsJsonFinal.to_hash)
           end
         }
         zippedstream.rewind
@@ -1002,13 +1026,15 @@ module Fluent::Plugin
                                             opts)
         if !response.nil?  && response.status == 200 then
           headers = response.headers
-
-          metricsLabels_array.each { |metricsLabels|
-            @@prometheusMetrics.records_posted.set(metricsLabels.records_valid, labels: { tag: metricsLabels.tag,
-                                                                                 oci_la_log_group_id: metricsLabels.logGroupId,
-                                                                                 oci_la_log_source_name: metricsLabels.logSourceName,
-                                                                                 oci_la_log_set: metricsLabels.logSet})
-          }
+          if metricsLabels_array != nil
+              metricsLabels_array.each { |metricsLabels|
+                @@prometheusMetrics.records_posted.set(metricsLabels.records_valid, labels: { worker_id: metricsLabels.worker_id,
+                                                                                     tag: metricsLabels.tag,
+                                                                                     oci_la_log_group_id: metricsLabels.logGroupId,
+                                                                                     oci_la_log_source_name: metricsLabels.logSourceName,
+                                                                                     oci_la_log_set: metricsLabels.logSet})
+              }
+          end
 
           #zippedstream.rewind #reposition buffer pointer to the beginning
           #zipfile = zippedstream&.sysread&.dup
@@ -1087,9 +1113,10 @@ module Fluent::Plugin
              error_reason = ex
              @@logger.error {"oci upload exception : Error while uploading the payload. #{ex}"}
           ensure
-              if error_reason != nil
+              if error_reason != nil && metricsLabels_array != nil
                   metricsLabels_array.each { |metricsLabels|
-                    @@prometheusMetrics.records_error.set(metricsLabels.records_valid, labels: { tag: metricsLabels.tag,
+                    @@prometheusMetrics.records_error.set(metricsLabels.records_valid, labels: {worker_id: metricsLabels.worker_id,
+                                                                                         tag: metricsLabels.tag,
                                                                                          oci_la_log_group_id: metricsLabels.logGroupId,
                                                                                          oci_la_log_source_name: metricsLabels.logSourceName,
                                                                                          oci_la_log_set: metricsLabels.logSet,
