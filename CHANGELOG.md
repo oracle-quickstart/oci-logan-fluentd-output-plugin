@@ -1,6 +1,10 @@
 # Change Log
 
-## 2.0.5 - 2022-04-12
+## 2.0.6 - 2024-02-05
+### Added
+- Support for endpoint override for instance principal auth mode.
+
+## 2.0.5 - 2023-04-12
 ### Added
 - Prometheus metrics support for multi worker configuration.
 - 'FAQ' section to help customers in triaging issues when encountered.

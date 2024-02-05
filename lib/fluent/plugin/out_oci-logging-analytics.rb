@@ -250,11 +250,16 @@ module Fluent::Plugin
         case @auth_type
           when "InstancePrincipal"
             instance_principals_signer = OCI::Auth::Signers::InstancePrincipalsSecurityTokenSigner.new
-            @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, signer: instance_principals_signer)
+            if is_valid(@endpoint)
+              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, endpoint: @endpoint, signer: instance_principals_signer)
+              @@logger.info {"loganalytics_client initialised with endpoint: #{@endpoint}"}
+            else
+              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, signer: instance_principals_signer)
+            end
           when "ConfigFile"
             my_config = OCI::ConfigFileLoader.load_config(config_file_location: @config_file_location, profile_name: @profile_name)
-            if is_valid(endpoint)
-              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config:my_config, endpoint:@endpoint)
+            if is_valid(@endpoint)
+              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: my_config, endpoint: @endpoint)
               @@logger.info {"loganalytics_client initialised with endpoint: #{@endpoint}"}
             else
               @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config:my_config)
