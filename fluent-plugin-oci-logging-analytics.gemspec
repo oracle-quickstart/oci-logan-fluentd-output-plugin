@@ -6,7 +6,7 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
 Gem::Specification.new do |spec|
   spec.name    = "fluent-plugin-oci-logging-analytics"
-  spec.version = "2.0.5"
+  spec.version = "2.0.6"
   spec.authors = ["Oracle","OCI Observability: Logging Analytics"]
   spec.email   = ["oci_la_plugins_grp@oracle.com"]
 
@@ -30,7 +30,7 @@ Gem::Specification.new do |spec|
   spec.add_runtime_dependency "fluentd", [">= 0.14.10", "< 2"]
   spec.add_runtime_dependency 'rubyzip', '~> 2.3.2'
   spec.add_runtime_dependency "oci", "~>2.16"
-  spec.add_runtime_dependency "prometheus-client", "~>4.0.0"
+  spec.add_runtime_dependency "prometheus-client", "~>4.0"
   spec.add_runtime_dependency "yajl-ruby", '~> 1.4', '>= 1.4.3'
 
 end
