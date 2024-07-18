@@ -1,12 +1,13 @@
 ## Copyright (c) 2021, 2022  Oracle and/or its affiliates.
 ## The Universal Permissive License (UPL), Version 1.0 as shown at https://oss.oracle.com/licenses/upl/
-
+require 'json'
 require 'fluent/plugin/output'
 require "benchmark"
 require 'zip'
 require 'yajl'
 require 'yajl/json_gem'
 
+# require 'tzinfo'
 require 'logger'
 require_relative '../dto/logEventsJson'
 require_relative '../dto/logEvents'
@@ -92,12 +93,13 @@ module Fluent::Plugin
     desc 'AuthType to be used.'
     config_param :auth_type,                    :string, :default => 'InstancePrincipal'
     desc 'Enable local payload dump.'
-    config_param :dump_zip_file,                    :bool, :default => false
+    config_param :dump_zip_file,                    :bool, :default => true
     desc 'Payload zip File Location.'
     config_param :zip_file_location,                    :string, :default => nil
     desc 'The kubernetes_metadata_keys_mapping.'
     config_param :kubernetes_metadata_keys_mapping,                    :hash, :default => {"container_name":"Container","namespace_name":"Namespace","pod_name":"Pod","container_image":"Container Image Name","host":"Node"}
-
+    desc 'opc-meta-properties'
+    config_param :opc_meta_properties,                    :string, :default => 'fluentd'
 
     #****************************************************************
     desc 'The http proxy to be used.'
@@ -255,6 +257,14 @@ module Fluent::Plugin
               @@logger.info {"loganalytics_client initialised with endpoint: #{@endpoint}"}
             else
               @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, signer: instance_principals_signer)
+            end
+          when "WorkloadIdentity"
+            workload_identity_signer = OCI::Auth::Signers::oke_workload_resource_principal_signer
+            if is_valid(@endpoint)
+              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, endpoint: @endpoint, signer: workload_identity_signer)
+              @@logger.info {"loganalytics_client initialised with endpoint: #{@endpoint}"}
+            else
+              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, signer: workload_identity_signer)
             end
           when "ConfigFile"
             my_config = OCI::ConfigFileLoader.load_config(config_file_location: @config_file_location, profile_name: @profile_name)
@@ -722,6 +732,8 @@ module Fluent::Plugin
                     end
                     next
                   end
+                  #check of the time zone is correct !!
+                  # metricsLabels.timezone = record["oci_la_timezone"]
                   metricsLabels.logGroupId = record["oci_la_log_group_id"]
                   metricsLabels.logSourceName = record["oci_la_log_source_name"]
                   if record["oci_la_log_set"] != nil
@@ -916,6 +928,15 @@ module Fluent::Plugin
         end
       end
     end
+    def timezone_exist?(tz)
+      puts tz  # Optionally, print the timezone identifier for debugging or logging purposes
+      begin
+        TZInfo::Timezone.get(tz)
+        return true
+      rescue TZInfo::InvalidTimezoneIdentifier
+        return false
+      end
+    end
 
     # Each oci_la_log_set will correspond to a separate file in the zip
     # Only MAX_FILES_PER_ZIP files are allowed per zip.
@@ -958,6 +979,38 @@ module Fluent::Plugin
 
     # takes a fluentD chunk and converts it to an in-memory zipfile, populating metrics hash provided
     # Any exception raised is passed into the metrics hash, to be re-thrown from write()
+    def getOpcMetaProp(input)
+      metaProps = input.split(";")
+      sourceExist = false
+
+      metaProps.each do |prop|
+        if prop.include?("source")
+          sourceExist = true
+          break
+        end
+      end
+
+      if !sourceExist
+        metaProps.unshift("source:fluentd")
+      end
+
+      return metaProps
+
+      # generating a hash map of properties
+      # myHash = Hash.new
+      # semColSplit = input.split(";")
+      # semColSplit.each do |kv|
+      #   dpSplit = kv.split(":")
+      #   myHash[dpSplit[0]] = dpSplit[1]
+      # end
+      #
+      # if myHash["source"].nil?
+      #   myHash["source"] = "fluentd"
+      # end
+      #
+      # return myHash
+    end
+
     def get_zipped_stream(oci_la_log_group_id,oci_la_global_metadata,records_per_logSet_map)
        begin
         current,  = Time.now
@@ -971,8 +1024,16 @@ module Fluent::Plugin
                   record['oci_la_entity_id'],
                   record['oci_la_entity_type'],
                   record['oci_la_log_source_name'] ,
-                  record['oci_la_log_path']
+                  record['oci_la_log_path'],
+                  record['oci_la_timezone']
                 ]}.map { |lrpe_key, records_per_lrpe|
+                  begin
+                    timezoneIdentifier = lrpe_key[lrpe_key.length-1]
+                    isTimezoneExist = timezone_exist? timezoneIdentifier
+                    if !isTimezoneExist
+                      raise "Invalid identifier '#{timezoneIdentifier}' timezone empty or not found !"
+                    end
+                  end
                   number_of_records += records_per_lrpe.length
                   LogEvents.new(lrpe_key, records_per_lrpe)
                 }
@@ -1021,9 +1082,14 @@ module Fluent::Plugin
     # upload zipped stream to oci
     def upload_to_oci(oci_la_log_group_id, number_of_records, zippedstream, metricsLabels_array)
       begin
+        opcMetaProp = {}
+        if is_valid(@opc_meta_properties)
+          opcMetaProp = getOpcMetaProp @opc_meta_properties
+        end
+
         error_reason = nil
         error_code = nil
-        opts = {payload_type: "ZIP"}
+        opts = {payload_type: "ZIP",opc_meta_properties:opcMetaProp}
 
             response = @@loganalytics_client.upload_log_events_file(namespace_name=@namespace,
                                             logGroupId=oci_la_log_group_id ,

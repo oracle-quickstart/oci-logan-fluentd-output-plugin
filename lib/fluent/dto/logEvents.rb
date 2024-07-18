@@ -2,9 +2,9 @@
 ## The Universal Permissive License (UPL), Version 1.0 as shown at https://oss.oracle.com/licenses/upl/
 
 class LogEvents
-  attr_accessor :entityId, :entityType, :logSourceName, :logPath, :logRecords , :metadata
+  attr_accessor :entityId, :entityType, :logSourceName, :logPath, :logRecords , :metadata, :timezone
   def initialize(lrpe_key, fluentd_records)
-    @metadata, @entityId, @entityType, @logSourceName, @logPath = lrpe_key
+    @metadata, @entityId, @entityType, @logSourceName, @logPath, @timezone = lrpe_key
     @logRecords = fluentd_records.map{ |record|
         record['message']
     }
@@ -17,7 +17,8 @@ class LogEvents
       entityType: @entityType,
       logSourceName: @logSourceName,
       logPath: @logPath,
-      logRecords: @logRecords
+      logRecords: @logRecords,
+      timezone:@timezone
     }.compact
   end
   

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="RUBY_MODULE" version="4">
+  <component name="ModuleRunConfigurationManager">
+    <shared />
+  </component>
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/features" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/spec" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/test" isTestSource="true" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="library" scope="PROVIDED" name="base64 (v0.2.0, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="bundler (v2.1.4, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="concurrent-ruby (v1.3.1, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="cool.io (v1.8.1, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="csv (v3.3.0, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="drb (v2.2.1, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="event_stream_parser (v1.0.0, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="fluentd (v1.17.0, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="http_parser.rb (v0.8.0, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="inifile (v3.0.0, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="json (v2.7.2, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="jwt (v2.8.1, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="msgpack (v1.7.2, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="oci (v2.21.1, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="power_assert (v2.0.3, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="prometheus-client (v4.2.2, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="psych (v5.1.2, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="rake (v12.3.3, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="rubyzip (v2.3.2, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="serverengine (v2.3.2, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="sigdump (v0.2.5, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="stringio (v3.1.0, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="strptime (v0.2.5, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="test-unit (v3.6.2, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="tzinfo (v2.0.6, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="tzinfo-data (v1.2024.1, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="webrick (v1.8.1, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+    <orderEntry type="library" scope="PROVIDED" name="yajl-ruby (v1.4.3, RVM: ruby-2.7.1 [global]) [gem]" level="application" />
+  </component>
+</module>
