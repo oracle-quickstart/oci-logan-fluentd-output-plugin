@@ -13,6 +13,7 @@ require_relative '../dto/logEventsJson'
 require_relative '../dto/logEvents'
 require_relative '../metrics/prometheusMetrics'
 require_relative '../metrics/metricsLabels'
+require_relative '../enums/source'
 
 # Import only specific OCI modules to improve load times and reduce the memory requirements.
 require 'oci/auth/auth'
@@ -37,7 +38,6 @@ require 'oci/version'
 require 'oci/waiter'
 require 'oci/retry/retry'
 require 'oci/object_storage/object_storage'
-
 module OCI
    class << self
      attr_accessor :sdk_name
@@ -93,13 +93,13 @@ module Fluent::Plugin
     desc 'AuthType to be used.'
     config_param :auth_type,                    :string, :default => 'InstancePrincipal'
     desc 'Enable local payload dump.'
-    config_param :dump_zip_file,                    :bool, :default => true
+    config_param :dump_zip_file,                    :bool, :default => false
     desc 'Payload zip File Location.'
     config_param :zip_file_location,                    :string, :default => nil
     desc 'The kubernetes_metadata_keys_mapping.'
     config_param :kubernetes_metadata_keys_mapping,                    :hash, :default => {"container_name":"Container","namespace_name":"Namespace","pod_name":"Pod","container_image":"Container Image Name","host":"Node"}
     desc 'opc-meta-properties'
-    config_param :opc_meta_properties,                    :string, :default => 'fluentd'
+    config_param :collection_source, :string, :default => 'fluentd'
 
     #****************************************************************
     desc 'The http proxy to be used.'
@@ -783,6 +783,17 @@ module Fluent::Plugin
                     end
                   end
 
+                  # validating the timezone field
+                   begin
+                     timezoneIdentifier = record["oci_la_timezone"]
+                     isTimezoneExist = timezone_exist? timezoneIdentifier
+                     if !isTimezoneExist
+                       @@logger.warn{"Invalid identifier '#{timezoneIdentifier}' timezone empty or not found !"}
+                       @@logger.info{"Using default timezone UTC"}
+                       record["oci_la_timezone"] = "UTC"
+                     end
+                   end
+
                   records << record
               ensure
                  # To get chunk_time_to_receive metrics per tag, corresponding latency and total records are calculated
@@ -929,7 +940,6 @@ module Fluent::Plugin
       end
     end
     def timezone_exist?(tz)
-      puts tz  # Optionally, print the timezone identifier for debugging or logging purposes
       begin
         TZInfo::Timezone.get(tz)
         return true
@@ -979,36 +989,19 @@ module Fluent::Plugin
 
     # takes a fluentD chunk and converts it to an in-memory zipfile, populating metrics hash provided
     # Any exception raised is passed into the metrics hash, to be re-thrown from write()
-    def getOpcMetaProp(input)
-      metaProps = input.split(";")
-      sourceExist = false
-
-      metaProps.each do |prop|
-        if prop.include?("source")
-          sourceExist = true
-          break
+    def getCollectionSource(input)
+      collections_src = []
+      if !is_valid input
+        collections_src.unshift("source:#{Source::FLUENTD}")
+      else
+        if input == Source::FLUENTD or input == Source::KUBERNETES_SOLUTION
+          collections_src.unshift("source:#{input}")
+        else
+          @@logger.info{"source not define ! using default source 'fluentd' "}
+          collections_src.unshift("source:#{Source::FLUENTD}")
         end
       end
-
-      if !sourceExist
-        metaProps.unshift("source:fluentd")
-      end
-
-      return metaProps
-
-      # generating a hash map of properties
-      # myHash = Hash.new
-      # semColSplit = input.split(";")
-      # semColSplit.each do |kv|
-      #   dpSplit = kv.split(":")
-      #   myHash[dpSplit[0]] = dpSplit[1]
-      # end
-      #
-      # if myHash["source"].nil?
-      #   myHash["source"] = "fluentd"
-      # end
-      #
-      # return myHash
+      collections_src
     end
 
     def get_zipped_stream(oci_la_log_group_id,oci_la_global_metadata,records_per_logSet_map)
@@ -1023,17 +1016,10 @@ module Fluent::Plugin
                   record['oci_la_metadata'],
                   record['oci_la_entity_id'],
                   record['oci_la_entity_type'],
-                  record['oci_la_log_source_name'] ,
+                  record['oci_la_log_source_name'],
                   record['oci_la_log_path'],
                   record['oci_la_timezone']
                 ]}.map { |lrpe_key, records_per_lrpe|
-                  begin
-                    timezoneIdentifier = lrpe_key[lrpe_key.length-1]
-                    isTimezoneExist = timezone_exist? timezoneIdentifier
-                    if !isTimezoneExist
-                      raise "Invalid identifier '#{timezoneIdentifier}' timezone empty or not found !"
-                    end
-                  end
                   number_of_records += records_per_lrpe.length
                   LogEvents.new(lrpe_key, records_per_lrpe)
                 }
@@ -1082,14 +1068,14 @@ module Fluent::Plugin
     # upload zipped stream to oci
     def upload_to_oci(oci_la_log_group_id, number_of_records, zippedstream, metricsLabels_array)
       begin
-        opcMetaProp = {}
-        if is_valid(@opc_meta_properties)
-          opcMetaProp = getOpcMetaProp @opc_meta_properties
+        collection_src_prop = {}
+        if is_valid(@collection_source)
+          collection_src_prop = getCollectionSource @collection_source
         end
 
         error_reason = nil
         error_code = nil
-        opts = {payload_type: "ZIP",opc_meta_properties:opcMetaProp}
+        opts = { payload_type: "ZIP", opc_meta_properties:collection_src_prop}
 
             response = @@loganalytics_client.upload_log_events_file(namespace_name=@namespace,
                                             logGroupId=oci_la_log_group_id ,
