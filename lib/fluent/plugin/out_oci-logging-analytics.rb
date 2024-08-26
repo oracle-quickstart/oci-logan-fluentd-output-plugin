@@ -99,7 +99,7 @@ module Fluent::Plugin
     desc 'The kubernetes_metadata_keys_mapping.'
     config_param :kubernetes_metadata_keys_mapping,                    :hash, :default => {"container_name":"Container","namespace_name":"Namespace","pod_name":"Pod","container_image":"Container Image Name","host":"Node"}
     desc 'opc-meta-properties'
-    config_param :collection_source, :string, :default => 'fluentd'
+    config_param :collection_source, :string, :default => Source::FLUENTD
 
     #****************************************************************
     desc 'The http proxy to be used.'
@@ -786,12 +786,17 @@ module Fluent::Plugin
                   # validating the timezone field
                    begin
                      timezoneIdentifier = record["oci_la_timezone"]
-                     isTimezoneExist = timezone_exist? timezoneIdentifier
-                     if !isTimezoneExist
-                       @@logger.warn{"Invalid identifier '#{timezoneIdentifier}' timezone empty or not found !"}
-                       @@logger.info{"Using default timezone UTC"}
-                       record["oci_la_timezone"] = "UTC"
+                     unless is_valid(timezoneIdentifier)
+                       record["oci_la_timezone"] = nil
+                     else
+                       isTimezoneExist = timezone_exist? timezoneIdentifier
+                       unless isTimezoneExist
+                         @@logger.warn { "Invalid identifier '#{timezoneIdentifier}' timezone empty or not found !, using default UTC." }
+                         record["oci_la_timezone"] = "UTC"
+                       end
+
                      end
+
                    end
 
                   records << record
@@ -997,7 +1002,7 @@ module Fluent::Plugin
         if input == Source::FLUENTD or input == Source::KUBERNETES_SOLUTION
           collections_src.unshift("source:#{input}")
         else
-          @@logger.info{"source not define ! using default source 'fluentd' "}
+          # source not define ! using default source 'fluentd'
           collections_src.unshift("source:#{Source::FLUENTD}")
         end
       end
