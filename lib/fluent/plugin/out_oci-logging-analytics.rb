@@ -638,6 +638,8 @@ module Fluent::Plugin
          latency = 0
          records_per_tag = 0
 
+
+
          tag_metrics_set = Hash.new
          logGroup_labels_set = Hash.new
 
@@ -647,8 +649,8 @@ module Fluent::Plugin
          tags_per_logGroupId = Hash.new
          tag_logSet_map = Hash.new
          tag_metadata_map = Hash.new
+         timezoneValuesByTag = Hash.new
          incoming_records = 0
-
          chunk.each do |time, record|
            incoming_records += 1
            metricsLabels = MetricsLabels.new
@@ -732,7 +734,7 @@ module Fluent::Plugin
                     end
                     next
                   end
-                  #check of the time zone is correct !!
+
                   # metricsLabels.timezone = record["oci_la_timezone"]
                   metricsLabels.logGroupId = record["oci_la_log_group_id"]
                   metricsLabels.logSourceName = record["oci_la_log_source_name"]
@@ -782,21 +784,24 @@ module Fluent::Plugin
                       tags_per_logGroupId[record["oci_la_log_group_id"]] = record["tag"]
                     end
                   end
-
                   # validating the timezone field
-                   begin
-                     timezoneIdentifier = record["oci_la_timezone"]
-                     unless is_valid(timezoneIdentifier)
-                       record["oci_la_timezone"] = nil
-                     else
-                       isTimezoneExist = timezone_exist? timezoneIdentifier
-                       unless isTimezoneExist
-                         @@logger.warn { "Invalid identifier '#{timezoneIdentifier}' timezone empty or not found !, using default UTC." }
-                         record["oci_la_timezone"] = "UTC"
+                   if !timezoneValuesByTag.has_key?(record["tag"])
+                     begin
+                       timezoneIdentifier = record["oci_la_timezone"]
+                       unless is_valid(timezoneIdentifier)
+                         record["oci_la_timezone"] = nil
+                       else
+                         isTimezoneExist = timezone_exist? timezoneIdentifier
+                         unless isTimezoneExist
+                           @@logger.warn { "Invalid timezone '#{timezoneIdentifier}', using default UTC." }
+                           record["oci_la_timezone"] = "UTC"
+                         end
+
                        end
-
+                       timezoneValuesByTag[record["tag"]] = record["oci_la_timezone"]
                      end
-
+                   else
+                     record["oci_la_timezone"] = timezoneValuesByTag[record["tag"]]
                    end
 
                   records << record
