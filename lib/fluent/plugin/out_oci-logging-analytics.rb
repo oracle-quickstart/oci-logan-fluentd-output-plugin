@@ -1003,7 +1003,7 @@ module Fluent::Plugin
       if !is_valid input
         collections_src.unshift("source:#{Source::FLUENTD}")
       else
-        if input == Source::FLUENTD or input == Source::KUBERNETES_SOLUTION
+        if input == Source::FLUENTD.to_s or input == Source::KUBERNETES_SOLUTION.to_s
           collections_src.unshift("source:#{input}")
         else
           # source not define ! using default source 'fluentd'
@@ -1077,11 +1077,7 @@ module Fluent::Plugin
     # upload zipped stream to oci
     def upload_to_oci(oci_la_log_group_id, number_of_records, zippedstream, metricsLabels_array)
       begin
-        collection_src_prop = {}
-        if is_valid(@collection_source)
-          collection_src_prop = getCollectionSource @collection_source
-        end
-
+        collection_src_prop = getCollectionSource @collection_source
         error_reason = nil
         error_code = nil
         opts = { payload_type: "ZIP", opc_meta_properties:collection_src_prop}
