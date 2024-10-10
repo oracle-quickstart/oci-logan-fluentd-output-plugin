@@ -1,4 +1,4 @@
-## Copyright (c) 2021, 2022  Oracle and/or its affiliates.
+## Copyright (c) 2021, 2024  Oracle and/or its affiliates.
 ## The Universal Permissive License (UPL), Version 1.0 as shown at https://oss.oracle.com/licenses/upl/
 
 require 'fluent/plugin/output'
@@ -7,11 +7,13 @@ require 'zip'
 require 'yajl'
 require 'yajl/json_gem'
 
+# require 'tzinfo'
 require 'logger'
 require_relative '../dto/logEventsJson'
 require_relative '../dto/logEvents'
 require_relative '../metrics/prometheusMetrics'
 require_relative '../metrics/metricsLabels'
+require_relative '../enums/source'
 
 # Import only specific OCI modules to improve load times and reduce the memory requirements.
 require 'oci/auth/auth'
@@ -36,7 +38,6 @@ require 'oci/version'
 require 'oci/waiter'
 require 'oci/retry/retry'
 require 'oci/object_storage/object_storage'
-
 module OCI
    class << self
      attr_accessor :sdk_name
@@ -97,7 +98,8 @@ module Fluent::Plugin
     config_param :zip_file_location,                    :string, :default => nil
     desc 'The kubernetes_metadata_keys_mapping.'
     config_param :kubernetes_metadata_keys_mapping,                    :hash, :default => {"container_name":"Container","namespace_name":"Namespace","pod_name":"Pod","container_image":"Container Image Name","host":"Node"}
-
+    desc 'opc-meta-properties'
+    config_param :collection_source, :string, :default => Source::FLUENTD
 
     #****************************************************************
     desc 'The http proxy to be used.'
@@ -255,6 +257,14 @@ module Fluent::Plugin
               @@logger.info {"loganalytics_client initialised with endpoint: #{@endpoint}"}
             else
               @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, signer: instance_principals_signer)
+            end
+          when "WorkloadIdentity"
+            workload_identity_signer = OCI::Auth::Signers::oke_workload_resource_principal_signer
+            if is_valid(@endpoint)
+              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, endpoint: @endpoint, signer: workload_identity_signer)
+              @@logger.info {"loganalytics_client initialised with endpoint: #{@endpoint}"}
+            else
+              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, signer: workload_identity_signer)
             end
           when "ConfigFile"
             my_config = OCI::ConfigFileLoader.load_config(config_file_location: @config_file_location, profile_name: @profile_name)
@@ -628,6 +638,8 @@ module Fluent::Plugin
          latency = 0
          records_per_tag = 0
 
+
+
          tag_metrics_set = Hash.new
          logGroup_labels_set = Hash.new
 
@@ -637,8 +649,8 @@ module Fluent::Plugin
          tags_per_logGroupId = Hash.new
          tag_logSet_map = Hash.new
          tag_metadata_map = Hash.new
+         timezoneValuesByTag = Hash.new
          incoming_records = 0
-
          chunk.each do |time, record|
            incoming_records += 1
            metricsLabels = MetricsLabels.new
@@ -722,6 +734,8 @@ module Fluent::Plugin
                     end
                     next
                   end
+
+                  # metricsLabels.timezone = record["oci_la_timezone"]
                   metricsLabels.logGroupId = record["oci_la_log_group_id"]
                   metricsLabels.logSourceName = record["oci_la_log_source_name"]
                   if record["oci_la_log_set"] != nil
@@ -770,6 +784,25 @@ module Fluent::Plugin
                       tags_per_logGroupId[record["oci_la_log_group_id"]] = record["tag"]
                     end
                   end
+                  # validating the timezone field
+                   if !timezoneValuesByTag.has_key?(record["tag"])
+                     begin
+                       timezoneIdentifier = record["oci_la_timezone"]
+                       unless is_valid(timezoneIdentifier)
+                         record["oci_la_timezone"] = nil
+                       else
+                         isTimezoneExist = timezone_exist? timezoneIdentifier
+                         unless isTimezoneExist
+                           @@logger.warn { "Invalid timezone '#{timezoneIdentifier}', using default UTC." }
+                           record["oci_la_timezone"] = "UTC"
+                         end
+
+                       end
+                       timezoneValuesByTag[record["tag"]] = record["oci_la_timezone"]
+                     end
+                   else
+                     record["oci_la_timezone"] = timezoneValuesByTag[record["tag"]]
+                   end
 
                   records << record
               ensure
@@ -916,6 +949,14 @@ module Fluent::Plugin
         end
       end
     end
+    def timezone_exist?(tz)
+      begin
+        TZInfo::Timezone.get(tz)
+        return true
+      rescue TZInfo::InvalidTimezoneIdentifier
+        return false
+      end
+    end
 
     # Each oci_la_log_set will correspond to a separate file in the zip
     # Only MAX_FILES_PER_ZIP files are allowed per zip.
@@ -958,6 +999,21 @@ module Fluent::Plugin
 
     # takes a fluentD chunk and converts it to an in-memory zipfile, populating metrics hash provided
     # Any exception raised is passed into the metrics hash, to be re-thrown from write()
+    def getCollectionSource(input)
+      collections_src = []
+      if !is_valid input
+        collections_src.unshift("source:#{Source::FLUENTD}")
+      else
+        if input == Source::FLUENTD.to_s or input == Source::KUBERNETES_SOLUTION.to_s
+          collections_src.unshift("source:#{input}")
+        else
+          # source not define ! using default source 'fluentd'
+          collections_src.unshift("source:#{Source::FLUENTD}")
+        end
+      end
+      collections_src
+    end
+
     def get_zipped_stream(oci_la_log_group_id,oci_la_global_metadata,records_per_logSet_map)
        begin
         current,  = Time.now
@@ -970,8 +1026,9 @@ module Fluent::Plugin
                   record['oci_la_metadata'],
                   record['oci_la_entity_id'],
                   record['oci_la_entity_type'],
-                  record['oci_la_log_source_name'] ,
-                  record['oci_la_log_path']
+                  record['oci_la_log_source_name'],
+                  record['oci_la_log_path'],
+                  record['oci_la_timezone']
                 ]}.map { |lrpe_key, records_per_lrpe|
                   number_of_records += records_per_lrpe.length
                   LogEvents.new(lrpe_key, records_per_lrpe)
@@ -1021,9 +1078,10 @@ module Fluent::Plugin
     # upload zipped stream to oci
     def upload_to_oci(oci_la_log_group_id, number_of_records, zippedstream, metricsLabels_array)
       begin
+        collection_src_prop = getCollectionSource @collection_source
         error_reason = nil
         error_code = nil
-        opts = {payload_type: "ZIP"}
+        opts = { payload_type: "ZIP", opc_meta_properties:collection_src_prop}
 
             response = @@loganalytics_client.upload_log_events_file(namespace_name=@namespace,
                                             logGroupId=oci_la_log_group_id ,

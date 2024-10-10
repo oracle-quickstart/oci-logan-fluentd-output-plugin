@@ -1,12 +1,13 @@
-## Copyright (c) 2021, 2022  Oracle and/or its affiliates.
+## Copyright (c) 2021, 2024  Oracle and/or its affiliates.
 ## The Universal Permissive License (UPL), Version 1.0 as shown at https://oss.oracle.com/licenses/upl/
+require_relative './lib/fluent/version/version'
 
 lib = File.expand_path("../lib", __FILE__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
 Gem::Specification.new do |spec|
   spec.name    = "fluent-plugin-oci-logging-analytics"
-  spec.version = "2.0.6"
+  spec.version = Version::VERSION
   spec.authors = ["Oracle","OCI Observability: Logging Analytics"]
   spec.email   = ["oci_la_plugins_grp@oracle.com"]
 

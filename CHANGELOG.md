@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.0.7 - 2024-10-10
+### Added
+- Support for timezone override for logs where timezone identifier is missing
+- Support for Workload Identity based authorization
+
 ## 2.0.6 - 2024-02-05
 ### Added
 - Support for endpoint override for instance principal auth mode.
