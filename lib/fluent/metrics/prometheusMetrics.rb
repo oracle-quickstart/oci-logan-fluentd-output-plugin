@@ -1,3 +1,6 @@
+## Copyright (c) 2021, 2024  Oracle and/or its affiliates.
+## The Universal Permissive License (UPL), Version 1.0 as shown at https://oss.oracle.com/licenses/upl/
+
 require 'prometheus/client'
 require 'prometheus/client/registry'
 require 'prometheus/client/gauge'
