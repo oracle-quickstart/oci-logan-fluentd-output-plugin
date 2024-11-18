@@ -20,5 +20,4 @@ class LogEventsJson
       end
     }.compact
   end
-
 end

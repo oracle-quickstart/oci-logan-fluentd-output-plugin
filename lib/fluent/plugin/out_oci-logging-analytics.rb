@@ -92,6 +92,8 @@ module Fluent::Plugin
     config_param :endpoint,                    :string, :default => nil
     desc 'AuthType to be used.'
     config_param :auth_type,                    :string, :default => 'InstancePrincipal'
+    desc 'OCI Domain'
+    config_param :oci_domain,                    :string, :default => nil
     desc 'Enable local payload dump.'
     config_param :dump_zip_file,                    :bool, :default => false
     desc 'Payload zip File Location.'
@@ -249,34 +251,62 @@ module Fluent::Plugin
         if is_valid(@config_file_location)
             @auth_type = "ConfigFile"
         end
+
         case @auth_type
-          when "InstancePrincipal"
-            instance_principals_signer = OCI::Auth::Signers::InstancePrincipalsSecurityTokenSigner.new
-            if is_valid(@endpoint)
-              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, endpoint: @endpoint, signer: instance_principals_signer)
-              @@logger.info {"loganalytics_client initialised with endpoint: #{@endpoint}"}
-            else
-              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, signer: instance_principals_signer)
-            end
-          when "WorkloadIdentity"
-            workload_identity_signer = OCI::Auth::Signers::oke_workload_resource_principal_signer
-            if is_valid(@endpoint)
-              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, endpoint: @endpoint, signer: workload_identity_signer)
-              @@logger.info {"loganalytics_client initialised with endpoint: #{@endpoint}"}
-            else
-              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: OCI::Config.new, signer: workload_identity_signer)
-            end
-          when "ConfigFile"
-            my_config = OCI::ConfigFileLoader.load_config(config_file_location: @config_file_location, profile_name: @profile_name)
-            if is_valid(@endpoint)
-              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: my_config, endpoint: @endpoint)
-              @@logger.info {"loganalytics_client initialised with endpoint: #{@endpoint}"}
-            else
-              @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config:my_config)
-            end
+        when "InstancePrincipal"
+          instance_principals_signer = nil
+          la_endpoint = nil
+          if is_valid(@oci_domain)
+            fedration_endpoint = "https://auth.#{@oci_domain}/v1/x509"
+            instance_principals_signer = OCI::Auth::Signers::InstancePrincipalsSecurityTokenSigner.new(
+              federation_endpoint: fedration_endpoint)
+            @@logger.info "Custom Federation Endpoint: #{fedration_endpoint}"
           else
-            raise Fluent::ConfigError, "Invalid authType @auth_type, authType must be either InstancePrincipal or ConfigFile."
-            abort
+            instance_principals_signer = OCI::Auth::Signers::InstancePrincipalsSecurityTokenSigner.new
+          end
+          if is_valid(@endpoint)
+            la_endpoint = @endpoint
+            @@logger.info "Initializing loganalytics_client with endpoint: #{la_endpoint}"
+          elsif is_valid(@oci_domain)
+            la_endpoint = "https://loganalytics.#{@oci_domain}"
+            @@logger.info "Initializing loganalytics_client with custom domain endpoint: #{la_endpoint}"
+          end
+          @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(
+            config: OCI::Config.new,
+            endpoint: la_endpoint,
+            signer: instance_principals_signer)
+          @@logger.info 'loganalytics_client initialized.'
+        when "WorkloadIdentity"
+          la_endpoint = nil
+          workload_identity_signer = OCI::Auth::Signers::oke_workload_resource_principal_signer
+          if is_valid(@endpoint)
+            la_endpoint = @endpoint
+            @@logger.info "Initializing loganalytics_client with endpoint: #{@endpoint}"
+          elsif is_valid(@oci_domain)
+            la_endpoint = "https://loganalytics.#{@oci_domain}"
+            @@logger.info "Initializing loganalytics_client with custom domain endpoint: #{la_endpoint}"
+          end
+          @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(
+            config: OCI::Config.new,
+            endpoint: la_endpoint,
+            signer: workload_identity_signer)
+          @@logger.info 'loganalytics_client initialized.'
+        when "ConfigFile"
+          my_config = OCI::ConfigFileLoader.load_config(
+            config_file_location: @config_file_location,
+            profile_name: @profile_name)
+          la_endpoint = nil
+          if is_valid(@endpoint)
+            la_endpoint = @endpoint
+            @@logger.info "Initializing loganalytics_client with endpoint: #{la_endpoint}"
+          elsif is_valid(@oci_domain)
+            la_endpoint = "https://loganalytics.#{@oci_domain}"
+            @@logger.info "Initializing loganalytics_client with custom domain endpoint: #{la_endpoint}"
+          end
+          @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(config: my_config, endpoint: la_endpoint)
+          @@logger.info 'loganalytics_client initialised'
+        else
+          raise Fluent::ConfigError, "Invalid authType: #{@auth_type}, valid inputs are -  InstancePrincipal, ConfigFile, WorkloadIdentity"
         end
 
         if is_valid(@proxy_ip) && is_number(@proxy_port)
@@ -288,13 +318,18 @@ module Fluent::Plugin
         end
 
         rescue => ex
-                @@logger.error {"Error occurred while initializing LogAnalytics Client:
-                                  authType: #{@auth_type},
-                                  errorMessage: #{ex}"}
+          @@logger.error {"Error occurred while initializing LogAnalytics Client:
+                              authType: #{@auth_type},
+                              errorMessage: #{ex}"}
     end
 
     def configure(conf)
       super
+
+      if is_valid(@oci_domain) && !@oci_domain.match(/\S.oci.\S/)
+        raise Fluent::ConfigError,  "Invalid oci_domain: #{@oci_domain}, valid fmt: <oci-region>.oci.<oci-domain> | ex: us-ashburn-1.oci.oraclecloud.com"
+      end
+
       @@prometheusMetrics = PrometheusMetrics.instance
       initialize_logger
 

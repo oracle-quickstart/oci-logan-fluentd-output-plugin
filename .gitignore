@@ -1,0 +1,7 @@
+input_ocibuild/
+output_ocibuild_ruby_build/
+output_ocibuild_dockerize_api/
+.DS_Store
+fluent-plugin-oci-logging-analytics*
+lib/.DS_Store
+lib/fluent/.DS_Store
