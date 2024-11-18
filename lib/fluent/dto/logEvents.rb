@@ -21,5 +21,4 @@ class LogEvents
       timezone:@timezone
     }.compact
   end
-
 end

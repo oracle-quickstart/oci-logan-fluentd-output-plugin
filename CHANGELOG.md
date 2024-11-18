@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.0.8 - 2024-11-18
+### Added
+- Support for new OCI Regions which are not yet supported through OCI Ruby SDK by default.
+
 ## 2.0.7 - 2024-10-10
 ### Added
 - Support for timezone override for logs where timezone identifier is missing
