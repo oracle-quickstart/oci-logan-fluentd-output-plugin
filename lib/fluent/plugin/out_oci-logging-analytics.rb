@@ -101,8 +101,6 @@ module Fluent::Plugin
     config_param :zip_file_location,                    :string, :default => nil
     desc 'The kubernetes_metadata_keys_mapping.'
     config_param :kubernetes_metadata_keys_mapping,                    :hash, :default => {"container_name":"Container","namespace_name":"Namespace","pod_name":"Pod","container_image":"Container Image Name","host":"Node"}
-    desc 'Merge kubernetes metadata labels to single JSON string'
-    config_param :merge_kubernetes_labels_metadata, :bool, :default => false
     desc 'opc-meta-properties'
     config_param :collection_source, :string, :default => Source::FLUENTD
 
@@ -636,7 +634,7 @@ module Fluent::Plugin
         oci_la_metadata = {}
       end
 
-      if merge_kubernetes_labels_metadata == true
+      if kubernetes_metadata_keys_mapping.has_key?('labels')
         kubernetes_labels_metadata = record[:kubernetes][:labels]
         merged_json_str_for_labels = kubernetes_labels_metadata.to_json
         record[:kubernetes][:labels] = merged_json_str_for_labels
