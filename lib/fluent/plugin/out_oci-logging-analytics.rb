@@ -634,10 +634,10 @@ module Fluent::Plugin
         oci_la_metadata = {}
       end
 
-      if kubernetes_metadata_keys_mapping.has_key?('labels')
-        kubernetes_labels_metadata = record[:kubernetes][:labels]
+      if kubernetes_metadata_keys_mapping.has_key?(:labels)
+        kubernetes_labels_metadata = record["kubernetes"]["labels"]
         merged_json_str_for_labels = kubernetes_labels_metadata.to_json
-        record[:kubernetes][:labels] = merged_json_str_for_labels
+        record["kubernetes"]["labels"] = merged_json_str_for_labels
       end
 
       kubernetes_metadata = flatten(record["kubernetes"])
