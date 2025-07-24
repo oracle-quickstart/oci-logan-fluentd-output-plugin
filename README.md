@@ -1,9 +1,9 @@
-# OCI Logging Analytics Fluentd Output Plugin
+# OCI Log Analytics Fluentd Output Plugin
 
 
 ## Overview
 
-OCI Logging Analytics Fluentd output plugin collects event logs, buffer into local file system, periodically creates payload and uploads it to OCI Logging Analytics.
+OCI Log Analytics Fluentd output plugin collects event logs, buffer into local file system, periodically creates payload and uploads it to OCI Log Analytics.
 
 ## Installation Instructions
 
@@ -70,7 +70,7 @@ Or install it manually as:
     - In case of back-end service not available (5XX exceptions), output plugin will keep retrying with the existing chunk and meanwhile, new chunks will be keep on getting scheduled. 
       Each chunk being 2MB size, and with chunk interval 30 sec, in case of a 30 mins outage (can be more in unforeseen cases), we need a minimum of 120MB memory allocated for memory buffer.
 
-    - In any container based logging analytics, as the logs are not saved in the containers and they are completely lost in case not consumed, file based memory provides a persistent buffer implementation.
+    - In any container based Log Analytics, as the logs are not saved in the containers and they are completely lost in case not consumed, file based memory provides a persistent buffer implementation.
     
     - For container based deployments, while creating the fluentd config file, we need to consider all these edge cases and proper sizing to come up with the memory size.
     
@@ -79,7 +79,7 @@ Or install it manually as:
 
 ### Input Plugin Configuration 
 
-The incoming log events must be in a specific format so that the Fluentd plugin provided by Oracle can process the log data, chunk them, and transfer them to OCI Logging Analytics.
+The incoming log events must be in a specific format so that the Fluentd plugin provided by Oracle can process the log data, chunk them, and transfer them to OCI Log Analytics.
  
    - [Verify the format of the incoming log events](https://docs.oracle.com/en/learn/oci_logging_analytics_fluentd/#verify-the-format-of-the-incoming-log-events)
    
@@ -87,7 +87,7 @@ The incoming log events must be in a specific format so that the Fluentd plugin 
 
 ### Filter Configuration
 
-Use filter plugin (record_transformer) to transform the input log events to add OCI Logging Analytics specific fields/metadata.
+Use filter plugin (record_transformer) to transform the input log events to add OCI Log Analytics specific fields/metadata.
 
    - [Filter configuration](https://docs.oracle.com/en/learn/oci_logging_analytics_fluentd/#filter-configuration)
 
@@ -100,9 +100,9 @@ Use filter plugin (record_transformer) to transform the input log events to add 
 
    - Example configuration that can be used for monitoring [kafka log](examples/kafka.conf)
 
-## Start Viewing the Logs in Logging Analytics
+## Start Viewing the Logs in Log Analytics
 
-Refer [Viewing the Logs in Logging Analytics](https://docs.oracle.com/en/learn/oci_logging_analytics_fluentd/#start-viewing-the-logs-in-logging-analytics)
+Refer [Viewing the Logs in Log Analytics](https://docs.oracle.com/en/learn/oci_logging_analytics_fluentd/#start-viewing-the-logs-in-logging-analytics)
 
 ## Metrics
 
@@ -118,37 +118,37 @@ For prometheus metrics to work properly, please add 'tag' and 'worker_id' (in ca
 #### Metrics details
     Metric Name: oci_la_fluentd_output_plugin_records_received 
     labels: [:worker_id,:tag,:oci_la_log_group_id,:oci_la_log_source_name,:oci_la_log_set]
-    Description: Number of records received by the OCI Logging Analytics Fluentd output plugin.
+    Description: Number of records received by the OCI Log Analytics Fluentd output plugin.
     Type : Gauge
 
     Metric Name: oci_la_fluentd_output_plugin_records_valid 
     labels: [:worker_id,:tag,:oci_la_log_group_id,:oci_la_log_source_name,:oci_la_log_set]
-    Description: Number of valid records received by the OCI Logging Analytics Fluentd output plugin.
+    Description: Number of valid records received by the OCI Log Analytics Fluentd output plugin.
     Type : Gauge 
     
     Metric Name: oci_la_fluentd_output_plugin_records_invalid 
     labels: [:worker_id,:tag,:oci_la_log_group_id,:oci_la_log_source_name,:oci_la_log_set,:reason]
-    Description: Number of invalid records received by the OCI Logging Analytics Fluentd output plugin. 
+    Description: Number of invalid records received by the OCI Log Analytics Fluentd output plugin. 
     Type : Gauge
     
     Metric Name: oci_la_fluentd_output_plugin_records_post_error 
     labels: [:worker_id,:tag,:oci_la_log_group_id,:oci_la_log_source_name,:oci_la_log_set,:error_code, :reason]
-    Description: Number of records failed posting to OCI Logging Analytics by the Fluentd output plugin.
+    Description: Number of records failed posting to OCI Log Analytics by the Fluentd output plugin.
     Type : Gauge
         
     Metric Name: oci_la_fluentd_output_plugin_records_post_success 
     labels: [:worker_id,:tag,:oci_la_log_group_id,:oci_la_log_source_name,:oci_la_log_set]
-    Description: Number of records posted by the OCI Logging Analytics Fluentd output plugin. 
+    Description: Number of records posted by the OCI Log Analytics Fluentd output plugin. 
     Type : Gauge  
   
     Metric Name: oci_la_fluentd_output_plugin_chunk_time_to_receive
     labels: [:worker_id,:tag]
-    Description: Average time taken by Fluentd to deliver the collected records from Input plugin to OCI Logging Analytics output plugin.
+    Description: Average time taken by Fluentd to deliver the collected records from Input plugin to OCI Log Analytics output plugin.
     Type : Histogram  
     
     Metric Name: oci_la_fluentd_output_plugin_chunk_time_to_post 
     labels: [:oci_la_log_group_id]
-    Description: Average time taken for posting the received records to OCI Logging Analytics by the Fluentd output plugin.
+    Description: Average time taken for posting the received records to OCI Log Analytics by the Fluentd output plugin.
     Type : Histogram
 
 ## FAQ

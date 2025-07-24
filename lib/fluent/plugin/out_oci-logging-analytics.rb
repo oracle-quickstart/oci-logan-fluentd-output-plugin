@@ -219,7 +219,7 @@ module Fluent::Plugin
           end
 
           logger_set_level(@plugin_log_level)
-          @@logger.info {"Initializing oci-logging-analytics plugin"}
+          @@logger.info {"Initializing oci-log-analytics plugin"}
           if is_default_log_location
             @@logger.info {"plugin_log_location is not specified. oci-logging-analytics.log will be generated under directory from where fluentd is executed."}
           end
@@ -243,7 +243,7 @@ module Fluent::Plugin
       rescue => ex
         @@logger = log
         @@logger.error {"Error while initializing logger:#{ex.inspect}"}
-        @@logger.info {"Redirecting oci logging analytics logs to STDOUT"}
+        @@logger.info {"Redirecting oci log analytics logs to STDOUT"}
       end
     end
 
