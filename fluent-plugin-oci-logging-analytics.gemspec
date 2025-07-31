@@ -8,7 +8,7 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 Gem::Specification.new do |spec|
   spec.name    = "fluent-plugin-oci-logging-analytics"
   spec.version = Version::VERSION
-  spec.authors = ["Oracle","OCI Observability: Log Analytics"]
+  spec.authors = ["Oracle","OCI Observability: Logging Analytics"]
   spec.email   = ["oci_la_plugins_grp@oracle.com"]
 
   spec.summary       = %q{Fluentd output plugin for OCI Log Analytics.}

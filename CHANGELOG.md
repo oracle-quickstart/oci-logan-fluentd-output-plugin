@@ -1,5 +1,11 @@
 # Change Log
 
+# 2025-07-29
+### Changed
+- Renamed service "OCI Logging Analytics" to "OCI Log Analytics" across all documentation and references
+  - This is a non-breaking change that maintains backward compatibility
+  - Updated service references in documentation, decscription, and comments
+
 ## 2.0.8 - 2024-11-18
 ### Added
 - Support for new OCI Regions which are not yet supported through OCI Ruby SDK by default.

@@ -28,7 +28,7 @@
 ## Why am I getting this error - "Error occurred while parsing oci_la_log_set" ?
 - The provided Regex do not match the key coming in and the regex might need a correction.
 - This might be expected behaviour with the regex configured where not all keys need to be matched. In such scenarios we fall back to use logSet parameter set using oci_la_log_set.
-- You may also apply logSet using alternative approach documented [here](https://docs.oracle.com/en-us/iaas/logging-analytics/doc/manage-log-partitioning.html#LOGAN-GUID-2EC8EEDE-9BBD-4872-8083-A44F77611524)
+- You may also apply logSet using alternative approach documented [here](https://docs.oracle.com/en-us/iaas/log-analytics/doc/manage-log-partitioning.html#LOGAN-GUID-2EC8EEDE-9BBD-4872-8083-A44F77611524)
 
 ## Why am I getting this error - "Error while uploading the payload" or "execution expired" or "status : 0" ?
 - Sample logs:
@@ -53,7 +53,7 @@
 - Check if selected time range in log explorer is in line with the actual log messages timestamp.
 - Check after some time - As the processing of the data happens asynchronously, there are cases it may take some time to reflect the data in log explorer.
   - The processing of the data may fail in the subsequent validations which happens at OCI.
-    - Check for any [processing errors](https://docs.oracle.com/en-us/iaas/logging-analytics/doc/troubleshoot-ingestion-pipeline.html).
+    - Check for any [processing errors](https://docs.oracle.com/en-us/iaas/log-analytics/doc/troubleshoot-ingestion-pipeline.html).
     - If the issue is still persistent, raise an SR by providing the following information. tenency_ocid, region, sample opc-request-id/opc-object-id
     - You may get the opc-request-id/opc-object-id from fluentd output plugin log. The sample log for a successful upload looks like below,
 
