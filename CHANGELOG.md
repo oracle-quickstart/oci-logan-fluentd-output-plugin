@@ -2,7 +2,7 @@
 
 # 2025-07-29
 ### Changed
-- Renamed service "OCI Logging Analytics" to "OCI Log Analytics" across all documentation and references
+- - As per the recent service name change from `Logging Analytics` to `Log Analytics`, updated the relevant documentation and descriptions to reflect the name change.
   - This is a non-breaking change that maintains backward compatibility
   - Updated service references in documentation, decscription, and comments
 
