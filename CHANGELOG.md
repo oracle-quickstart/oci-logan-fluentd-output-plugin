@@ -1,6 +1,6 @@
 # Change Log
 
-# 2025-07-29
+# 2025-08-13
 ### Changed
 - - As per the recent service name change from `Logging Analytics` to `Log Analytics`, updated the relevant documentation and descriptions to reflect the name change.
   - This is a non-breaking change that maintains backward compatibility

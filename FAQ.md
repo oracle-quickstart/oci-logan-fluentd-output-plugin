@@ -41,7 +41,7 @@
 - This occurs due to connectivity to OCI endpoint. Ensure the proxy details are provided are valid if configured, or you have network connectivity to reach the OCI endpoint from where you are running the fluentd.
 
 ## How to find fluentd/output plugin logs ?
-- By default (starting from 2.0.5 version), oci Log Analytics output plugin logs goes to STDOUT and available as part of the fluentd logs itself, unless it is explicitly configured using the following plugin parameter.
+- By default (starting from 2.0.5 version), oci log analytics output plugin logs goes to STDOUT and available as part of the fluentd logs itself, unless it is explicitly configured using the following plugin parameter.
   ```
   plugin_log_location   "#{ENV['FLUENT_OCI_LOG_LOCATION'] || '/var/log'}"
   # Log file named 'oci-logging-analytics.log' will be generated in the above location

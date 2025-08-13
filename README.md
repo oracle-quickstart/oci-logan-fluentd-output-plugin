@@ -70,7 +70,7 @@ Or install it manually as:
     - In case of back-end service not available (5XX exceptions), output plugin will keep retrying with the existing chunk and meanwhile, new chunks will be keep on getting scheduled. 
       Each chunk being 2MB size, and with chunk interval 30 sec, in case of a 30 mins outage (can be more in unforeseen cases), we need a minimum of 120MB memory allocated for memory buffer.
 
-    - In any container based Log Analytics, as the logs are not saved in the containers and they are completely lost in case not consumed, file based memory provides a persistent buffer implementation.
+    - In any container based log Analytics, as the logs are not saved in the containers and they are completely lost in case not consumed, file based memory provides a persistent buffer implementation.
     
     - For container based deployments, while creating the fluentd config file, we need to consider all these edge cases and proper sizing to come up with the memory size.
     
