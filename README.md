@@ -151,10 +151,17 @@ For prometheus metrics to work properly, please add 'tag' and 'worker_id' (in ca
     Description: Average time taken for posting the received records to OCI Logging Analytics by the Fluentd output plugin.
     Type : Histogram
 
+## Contributing
+
+This project welcomes contributions from the community. Before submitting a pull request, please [review our contribution guide](./CONTRIBUTING.md)
+
+## Security
+
+Please consult the [security guide](./SECURITY.md) for our responsible security vulnerability disclosure process
+
 ## FAQ
 
 See [FAQ](FAQ.md).
-
 
 ## Changes
 
@@ -165,4 +172,3 @@ See [CHANGELOG](CHANGELOG.md).
 Copyright (c) 2021, 2022  Oracle and/or its affiliates.
 
 See [LICENSE](LICENSE.txt) for more details.
-
