@@ -11,8 +11,8 @@ Gem::Specification.new do |spec|
   spec.authors = ["Oracle","OCI Observability: Logging Analytics"]
   spec.email   = ["oci_la_plugins_grp@oracle.com"]
 
-  spec.summary       = %q{Fluentd output plugin for OCI Logging Analytics.}
-  spec.description   = %q{OCI Logging Analytics Fluentd output plugin for ingesting the collected log events to OCI Logging Analytics.}
+  spec.summary       = %q{Fluentd output plugin for OCI Log Analytics.}
+  spec.description   = %q{Fluentd output plugin for ingesting the collected log events to OCI Log Analytics (previously known as OCI Logging Analytics).}
   spec.license       = "UPL-1.0"
 
   spec.files         = Dir.glob("{bin,lib}/**/*")
