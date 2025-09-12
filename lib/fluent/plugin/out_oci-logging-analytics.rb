@@ -243,7 +243,7 @@ module Fluent::Plugin
       rescue => ex
         @@logger = log
         @@logger.error {"Error while initializing logger:#{ex.inspect}"}
-        @@logger.info {"Redirecting oci logging analytics logs to STDOUT"}
+        @@logger.info {"Redirecting oci log analytics logs to STDOUT"}
       end
     end
 

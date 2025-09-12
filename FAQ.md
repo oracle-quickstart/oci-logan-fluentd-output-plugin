@@ -5,7 +5,7 @@
 - [Why am I getting this error - "Error while uploading the payload" or "execution expired" or "status : 0" ?](#why-am-i-getting-this-error---error-while-uploading-the-payload-or--execution-expired-or--status--0-)
 - [How to find fluentd/output plugin logs ?](#how-to-find-fluentdoutput-plugin-logs-)
 - [Fluentd successfully uploaded data, but still it is not visible in LogExplorer. How to triage ?](#fluentd-successfully-uploaded-data-but-still-it-is-not-visible-in-logexplorer-how-to-triage-)
-- [How to extract specific K8s metadata field that I am interested in to a Logging Analytics field ?](#how-to-extract-specific-k8s-metadata-field-that-i-am-interested-in-to-a-logging-analytics-field-)
+- [How to extract specific K8s metadata field that I am interested in to a Log Analytics field ?](#how-to-extract-specific-k8s-metadata-field-that-i-am-interested-in-to-a-log-analytics-field-)
 - [How to make Fluentd process the log data from the beginning of a file when using tail input plugin ?](#how-to-make-fluentd-process-the-log-data-from-the-beginning-of-a-file-when-using-tail-input-plugin-)
 - [How to make Fluentd process the last line from the file when using tail input plugin ?](#how-to-make-fluentd-process-the-last-line-from-the-file-when-using-tail-input-plugin-)
 - [In multi worker setup, prometheus is not displaying all the worker's metrics. How to fix it ?](#in-multi-worker-setup-prometheus-is-not-displaying-all-the-workers-metrics-how-to-fix-it-)
@@ -28,7 +28,7 @@
 ## Why am I getting this error - "Error occurred while parsing oci_la_log_set" ?
 - The provided Regex do not match the key coming in and the regex might need a correction.
 - This might be expected behaviour with the regex configured where not all keys need to be matched. In such scenarios we fall back to use logSet parameter set using oci_la_log_set.
-- You may also apply logSet using alternative approach documented [here](https://docs.oracle.com/en-us/iaas/logging-analytics/doc/manage-log-partitioning.html#LOGAN-GUID-2EC8EEDE-9BBD-4872-8083-A44F77611524)
+- You may also apply logSet using alternative approach documented [here](https://docs.oracle.com/en-us/iaas/log-analytics/doc/manage-log-partitioning.html#LOGAN-GUID-2EC8EEDE-9BBD-4872-8083-A44F77611524)
 
 ## Why am I getting this error - "Error while uploading the payload" or "execution expired" or "status : 0" ?
 - Sample logs:
@@ -41,7 +41,7 @@
 - This occurs due to connectivity to OCI endpoint. Ensure the proxy details are provided are valid if configured, or you have network connectivity to reach the OCI endpoint from where you are running the fluentd.
 
 ## How to find fluentd/output plugin logs ?
-- By default (starting from 2.0.5 version), oci logging analytics output plugin logs goes to STDOUT and available as part of the fluentd logs itself, unless it is explicitly configured using the following plugin parameter.
+- By default (starting from 2.0.5 version), oci log analytics output plugin logs goes to STDOUT and available as part of the fluentd logs itself, unless it is explicitly configured using the following plugin parameter.
   ```
   plugin_log_location   "#{ENV['FLUENT_OCI_LOG_LOCATION'] || '/var/log'}"
   # Log file named 'oci-logging-analytics.log' will be generated in the above location
@@ -53,7 +53,7 @@
 - Check if selected time range in log explorer is in line with the actual log messages timestamp.
 - Check after some time - As the processing of the data happens asynchronously, there are cases it may take some time to reflect the data in log explorer.
   - The processing of the data may fail in the subsequent validations which happens at OCI.
-    - Check for any [processing errors](https://docs.oracle.com/en-us/iaas/logging-analytics/doc/troubleshoot-ingestion-pipeline.html).
+    - Check for any [processing errors](https://docs.oracle.com/en-us/iaas/log-analytics/doc/troubleshoot-ingestion-pipeline.html).
     - If the issue is still persistent, raise an SR by providing the following information. tenency_ocid, region, sample opc-request-id/opc-object-id
     - You may get the opc-request-id/opc-object-id from fluentd output plugin log. The sample log for a successful upload looks like below,
 
@@ -66,7 +66,7 @@
                               opc-request-id':'C37D1DE643E24D778FC5FA22835FE024',
                               opc-object-id: 'C37D1DE643E24D778FC5FA22835FE024-D37D1DE643E24D778FC5FA22835FE024'"
       ```
-## How to extract specific K8s metadata field that I am interested in to a Logging Analytics field ?
+## How to extract specific K8s metadata field that I am interested in to a Log Analytics field ?
 - We can get this kind of scenario when collecting the logs from Kubernetes clusters and using kubernetes_metadata_filter to enrich the data at fluentd.
 - By default, fluentd output plugin will fetch following fields "container_name", "namespace_name", "pod_name", "container_image", "host" from kubernetes metadata when available, and maps them to following fields "Container", "Namespace", "Pod", "Container Image Name", "Node".
 - In case if a new field is needed to be extracted, or to modify the default mappings, add "kubernetes_metadata_keys_mapping" in match block like shown below.
