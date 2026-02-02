@@ -278,19 +278,53 @@ module Fluent::Plugin
           @@logger.info 'loganalytics_client initialized.'
         when "WorkloadIdentity"
           la_endpoint = nil
-          workload_identity_signer = OCI::Auth::Signers::oke_workload_resource_principal_signer
+          workload_identity_signer = OCI::Auth::Signers.oke_workload_resource_principal_signer
+          region = nil
+          config = OCI::Config.new
+# example of oci_domain: us-sanjose-1.oci.oraclecloud.com
+# example of endpoint: https://loganalytics.us-sanjose-1.oci
+          if is_valid(@oci_domain)
+              region_match = @oci_domain.match(/^([^.]+)\.oci\./)
+              if region_match
+                region = region_match[1]
+                @@logger.info "Using region from oci_domain: #{region}"
+              end
+          end
+          if !region && workload_identity_signer.instance_variable_get(:@region)
+              region = workload_identity_signer.instance_variable_get(:@region)
+              @@logger.info "Using region from signer: #{region}"
+          end
+
+          if !region && is_valid(@endpoint)
+              endpoint_match = @endpoint.match(/loganalytics\.([^.]+)\.oci/)
+              if endpoint_match
+                region = endpoint_match[1]
+                @@logger.info "Using region from endpoint: #{region}"
+              end
+          end
+
+          if region
+              config.region = region
+          else
+              raise Fluent::ConfigError, "Unable to determine region"
+          end
+
           if is_valid(@endpoint)
             la_endpoint = @endpoint
-            @@logger.info "Initializing loganalytics_client with endpoint: #{@endpoint}"
+            @@logger.info "Initializing loganalytics_client with endpoint: #{la_endpoint}"
           elsif is_valid(@oci_domain)
             la_endpoint = "https://loganalytics.#{@oci_domain}"
             @@logger.info "Initializing loganalytics_client with custom domain endpoint: #{la_endpoint}"
+          elsif region
+            la_endpoint = "https://loganalytics.#{region}.oci.oraclecloud.com"
+            @@logger.info "Initializing loganalytics_client with endpoint: #{la_endpoint}"
           end
+
           @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(
-            config: OCI::Config.new,
+            config: config,
             endpoint: la_endpoint,
             signer: workload_identity_signer)
-          @@logger.info 'loganalytics_client initialized.'
+          @@logger.info 'loganalytics_client initialized with WorkloadIdentity.'
         when "ConfigFile"
           my_config = OCI::ConfigFileLoader.load_config(
             config_file_location: @config_file_location,
