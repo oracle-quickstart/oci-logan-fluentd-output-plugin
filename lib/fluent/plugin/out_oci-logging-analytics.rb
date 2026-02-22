@@ -277,7 +277,6 @@ module Fluent::Plugin
             signer: instance_principals_signer)
           @@logger.info 'loganalytics_client initialized.'
         when "WorkloadIdentity"
-          la_endpoint = nil
           workload_identity_signer = OCI::Auth::Signers.oke_workload_resource_principal_signer
           region = nil
           config = OCI::Config.new
@@ -292,28 +291,29 @@ module Fluent::Plugin
               if tmp_signer.region
                 region = tmp_signer.region
                 @@logger.info "Extracted region from IMDS: #{region}"
+              else
+                raise Fluent::ConfigError, "IMDS returned nil region. " \
+                    "Please provide 'oci_domain' parameter (e.g., us-ashburn-1.oci.oraclecloud.com)."
               end
+            rescue Fluent::ConfigError
+              raise
             rescue => e
               raise Fluent::ConfigError, "Unable to determine region. " \
               "IMDS not available: #{e.message}. " \
               "Please provide 'oci_domain' parameter (e.g., us-ashburn-1.oci.oraclecloud.com)."
             end
           end
-          if region
-              config.region = region
-          else
-              raise Fluent::ConfigError, "Unable to determine region"
-          end
-
           if is_valid(@endpoint)
             la_endpoint = @endpoint
+            @@logger.info "Using custom endpoint"
           elsif is_valid(@oci_domain)
             la_endpoint = "https://loganalytics.#{@oci_domain}"
-            @@logger.info "Initializing loganalytics_client with custom domain endpoint: #{la_endpoint}"
-          elsif region
-            la_endpoint = "https://loganalytics.#{region}.oci.oraclecloud.com"
-            @@logger.info "Initializing loganalytics_client with endpoint: #{la_endpoint}"
+            @@logger.info "Using oci_domain endpoint"
+          else
+            la_endpoint = nil
+            @@logger.info "Using SDK default endpoint"
           end
+          config.region = region
 
           @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(
             config: config,
