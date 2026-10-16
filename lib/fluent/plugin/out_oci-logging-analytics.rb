@@ -277,20 +277,49 @@ module Fluent::Plugin
             signer: instance_principals_signer)
           @@logger.info 'loganalytics_client initialized.'
         when "WorkloadIdentity"
-          la_endpoint = nil
-          workload_identity_signer = OCI::Auth::Signers::oke_workload_resource_principal_signer
+          workload_identity_signer = OCI::Auth::Signers.oke_workload_resource_principal_signer
+          region = nil
+          config = OCI::Config.new
+
+          if is_valid(@oci_domain)
+            region_match = @oci_domain.match(/^([^.]+)\.oci\./)
+            region = region_match[1]
+            @@logger.info "Extracted region from oci_domain: #{region}"
+          else
+            begin
+              tmp_signer = OCI::Auth::Signers::InstancePrincipalsSecurityTokenSigner.new
+              if tmp_signer.region
+                region = tmp_signer.region
+                @@logger.info "Extracted region from IMDS: #{region}"
+              else
+                raise Fluent::ConfigError, "IMDS returned nil region. " \
+                    "Please provide 'oci_domain' parameter (e.g., us-ashburn-1.oci.oraclecloud.com)."
+              end
+            rescue Fluent::ConfigError
+              raise
+            rescue => e
+              raise Fluent::ConfigError, "Unable to determine region. " \
+              "IMDS not available: #{e.message}. " \
+              "Please provide 'oci_domain' parameter (e.g., us-ashburn-1.oci.oraclecloud.com)."
+            end
+          end
           if is_valid(@endpoint)
             la_endpoint = @endpoint
-            @@logger.info "Initializing loganalytics_client with endpoint: #{@endpoint}"
+            @@logger.info "Using custom endpoint"
           elsif is_valid(@oci_domain)
             la_endpoint = "https://loganalytics.#{@oci_domain}"
-            @@logger.info "Initializing loganalytics_client with custom domain endpoint: #{la_endpoint}"
+            @@logger.info "Using oci_domain endpoint"
+          else
+            la_endpoint = nil
+            @@logger.info "Using SDK default endpoint"
           end
+          config.region = region
+
           @@loganalytics_client = OCI::LogAnalytics::LogAnalyticsClient.new(
-            config: OCI::Config.new,
+            config: config,
             endpoint: la_endpoint,
             signer: workload_identity_signer)
-          @@logger.info 'loganalytics_client initialized.'
+          @@logger.info 'loganalytics_client initialized with WorkloadIdentity.'
         when "ConfigFile"
           my_config = OCI::ConfigFileLoader.load_config(
             config_file_location: @config_file_location,
@@ -326,8 +355,9 @@ module Fluent::Plugin
     def configure(conf)
       super
 
-      if is_valid(@oci_domain) && !@oci_domain.match(/\S.oci.\S/)
-        raise Fluent::ConfigError,  "Invalid oci_domain: #{@oci_domain}, valid fmt: <oci-region>.oci.<oci-domain> | ex: us-ashburn-1.oci.oraclecloud.com"
+      if is_valid(@oci_domain) && !@oci_domain.match(/^[a-z0-9-]+\.oci\.[a-z0-9.]+[a-z0-9]$/i)
+        raise Fluent::ConfigError, "Invalid oci_domain: #{@oci_domain}, " \
+            "valid format: <region>.oci.<domain> (e.g., us-ashburn-1.oci.oraclecloud.com)"
       end
 
       @@prometheusMetrics = PrometheusMetrics.instance
