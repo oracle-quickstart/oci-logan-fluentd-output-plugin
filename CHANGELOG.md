@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.2.0 - 2026-10-28
+### Changed
+- Upgraded rubyzip from `~> 2.3.2` to `~> 3.7.0`.
+- Raised the minimum Ruby version from 2.6 to 3.0, as required by rubyzip 3.x. Ruby 2.x is no longer supported.
+
 # 2025-08-13
 ### Changed
 - - As per the recent service name change from `Logging Analytics` to `Log Analytics`, updated the relevant documentation and descriptions to reflect the name change.
