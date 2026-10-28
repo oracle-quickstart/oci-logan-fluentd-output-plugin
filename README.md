@@ -24,10 +24,10 @@ Refer [Prerequisites](https://docs.oracle.com/en/learn/oci_logging_analytics_flu
     <th>yajl-ruby</th>
   </tr>
   <tr>
-    <td>>= 2.0.0</td>
+    <td>>= 2.2.0</td>
     <td>>= 0.14.10, < 2 </td>
-    <td>>= 2.6</td>
-    <td>~> 2.3.2 </td>
+    <td>>= 3.0</td>
+    <td>~> 3.7.0 </td>
     <td>~> 2.16</td>
     <td>~> 2.1.0</td>
     <td>~>1.4.3</td>
